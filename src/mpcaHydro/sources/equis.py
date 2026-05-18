@@ -375,10 +375,9 @@ SELECT
                             '7664-41-7',
                             'FLOW')
         AND mpca_dal.eq_fac_station.loc_type = 'River/Stream'
-        AND mpca_dal.mv_eq_result.approval_code = 'Final'
+        --AND mpca_dal.mv_eq_result.approval_code = 'Final'
         AND mpca_dal.mv_eq_result.reportable_result = 'Y'
         AND mpca_dal.mv_eq_result.facility_id IN ( 1, 33836701 )
-        AND mpca_dal.eq_sample.sample_method IN ('G-EVT', 'G', 'FIELDMSROBS', 'LKSURF1M', 'LKSURF2M', 'LKSURFOTH')
         AND mpca_dal.mv_eq_result.sys_loc_code IN ({placeholders})
     """
     with conn.cursor() as cursor:
