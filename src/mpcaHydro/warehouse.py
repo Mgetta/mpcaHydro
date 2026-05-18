@@ -180,13 +180,13 @@ def create_session(data_dir: str = "data",
     # Create empty staging tables first — guarantees the names exist
     con.execute(sql_loader.get_staging_tables_sql())
     con.execute(sql_loader.get_outlets_schema_sql())
-
     con.execute(sql_loader.get_derived_tables_sql())
     _refresh_staging_views(con, data_dir)
     _refresh_derived_views(con, data_dir)
 
     # These all resolve — either against parquet views or empty tables
     update_views(con)
+
 
     return con
 
@@ -321,42 +321,68 @@ def create_mapping_tables(con: duckdb.DuckDBPyConnection):
     }
     df_equis_cas = pd.DataFrame(equis_casrn_map.items(), columns=['cas_rn', 'constituent'])
     con.execute("CREATE TABLE IF NOT EXISTS mappings.equis_casrn AS SELECT * FROM df_equis_cas")
-
-    # Load station cross-reference from CSV
-    xref_csv_path = Path(__file__).parent / 'data/WISKI_EQUIS_XREF.csv'
-    if xref_csv_path.exists():
-        con.execute(f"CREATE TABLE IF NOT EXISTS mappings.station_xref AS SELECT * FROM read_csv_auto('{xref_csv_path.as_posix()}')")
-    else:
-        print(f"Warning: WISKI_EQUIS_XREF.csv not found at {xref_csv_path}")
-
     # Load wiski_quality_codes from CSV
     create_wiski_quality_codes_table(con)
+    create_equis_sample_method_table(con)
 
+#TODO move these to sql code
 def create_wiski_quality_codes_table(con: duckdb.DuckDBPyConnection):
     """Create the mappings.wiski_quality_codes table from the CSV file."""
     wiski_qc_csv_path = Path(__file__).parent / 'data/WISKI_QUALITY_CODES.csv'
     if wiski_qc_csv_path.exists():
-        con.execute(f"CREATE OR REPLACE TABLE IF NOT EXISTS mappings.wiski_quality_codes AS SELECT * FROM read_csv_auto('{wiski_qc_csv_path.as_posix()}')")
+        con.execute(f"CREATE OR REPLACE TABLE mappings.wiski_quality_codes AS SELECT * FROM read_csv_auto('{wiski_qc_csv_path.as_posix()}')")
     else:
         print(f"Warning: WISKI_QUALITY_CODES.csv not found at {wiski_qc_csv_path}")
 
+def create_equis_sample_method_table(con: duckdb.DuckDBPyConnection):
+    """Create a table of EQuIS sample methods to filter on."""
+    #TODO: This filter should be more robustly managed — e.g. stored as a table in the repo and edited via pull requests, rather than hardcoded in Python.  But this is good enough for now.
+    sample_methods = ['G-EVT', 'G', 'FIELDMSROBS', 'LKSURF1M', 'LKSURF2M', 'LKSURFOTH','Unknown']
+    df_sample_methods = pd.DataFrame(sample_methods, columns=['sample_method'])
+    df_sample_methods['include'] = 1  # Add a column to indicate which methods to include
+    # add a row for 'Unknown' sample methods, which we will exclude by default
+    #df_sample_methods = pd.concat([df_sample_methods, pd.DataFrame([['Unknown', 0]], columns=['sample_method', 'include'])], ignore_index=True)
+    con.execute("CREATE OR REPLACE TABLE mappings.equis_sample_methods AS SELECT * FROM df_sample_methods")
 
-def set_active_quality_codes(con, quality_codes: list = None):
+def set_active_sample_methods(con, sample_methods: list = None, reset: bool = False):
+    """Update which EQuIS sample methods are active in the current session."""
+    if reset:
+        create_equis_sample_method_table(con)  # reload from Python list to reset to default
+    elif sample_methods is None:
+        con.execute("UPDATE mappings.equis_sample_methods SET include = 1")
+    else:
+        # check that provided sample_methods are valid
+        result = con.execute("SELECT sample_method FROM mappings.equis_sample_methods").fetchall()
+        valid_methods = {row[0] for row in result}
+        assert (set(sample_methods) <= valid_methods), f"Invalid sample methods: {set(sample_methods) - valid_methods}"
+        con.execute("UPDATE mappings.equis_sample_methods SET include = 0")
+        placeholders = ', '.join(['?'] * len(sample_methods))
+        con.execute(
+            f"UPDATE mappings.equis_sample_methods SET include = 1 WHERE sample_method IN ({placeholders})",
+            sample_methods
+        )
+
+def set_active_quality_codes(con, quality_codes: list = None, reset: bool = False):
     """Update which quality codes are active in the current session.
     
     Since analytics.wiski is a VIEW, the next query against it
     will automatically reflect the change. No reprocessing needed.
     """
-    if quality_codes is None:
+    if reset:
         create_wiski_quality_codes_table(con)  # reload from CSV to reset to default
-    else:    
+    elif quality_codes is None:
+        con.execute("UPDATE mappings.wiski_quality_codes SET active = 1")
+    else:
+        # check that provided quality_codes are valid
+        result = con.execute("SELECT quality_code FROM mappings.wiski_quality_codes").fetchall()
+        valid_codes = {row[0] for row in result}
+        assert (set(quality_codes) <= valid_codes), f"Invalid quality codes: {set(quality_codes) - valid_codes}"
         con.execute("UPDATE mappings.wiski_quality_codes SET active = 0")
-        if quality_codes:
-            placeholders = ', '.join(['?'] * len(quality_codes))
-            con.execute(
-                f"UPDATE mappings.wiski_quality_codes SET active = 1 WHERE quality_code IN ({placeholders})",
-                quality_codes
-            )
+        placeholders = ', '.join(['?'] * len(quality_codes))
+        con.execute(
+            f"UPDATE mappings.wiski_quality_codes SET active = 1 WHERE quality_code IN ({placeholders})",
+            quality_codes
+        )
 
 def update_views(con: duckdb.DuckDBPyConnection):
     """Refresh all analytics and reports views from their SQL definitions.
@@ -371,7 +397,7 @@ def update_views(con: duckdb.DuckDBPyConnection):
     """
     con.execute(sql_loader.get_transforms_wiski_sql())
     con.execute(sql_loader.get_transforms_equis_sql())
-    con.execute(sql_loader.get_transforms_baseflow_sql())
+    #con.execute(sql_loader.get_transforms_baseflow_sql())
     con.execute(sql_loader.get_views_analytics_sql())
     con.execute(sql_loader.get_views_reports_sql())
 

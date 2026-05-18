@@ -18,9 +18,15 @@ WITH unit_converted AS (
 
 normalized AS (
     SELECT
-        station_no AS station_id,
+        "station_no" AS station_id,
         m.constituent,
-        "Timestamp" AS datetime,
+
+        -- Force cast these to standard timezone-naive types
+        CAST("Timestamp" AS TIMESTAMP) AS datetime,
+        CAST("Date" AS DATE) AS date,
+        CAST("Time" AS TIME) AS time,
+
+        "Timezone" AS timezone,
         converted_value AS value,
         unit,
         "Quality Code" AS quality_code,
@@ -46,14 +52,43 @@ quality_filtered AS (
 --    WHERE year(datetime) >= getvariable('min_year')
 --),
 
+-- hourly_averaged AS (
+--     SELECT
+--         station_id, constituent,
+--         DATE_TRUNC('hour', datetime + INTERVAL '30 minute') AS datetime,
+--         AVG(value) AS value,
+--         unit, station_origin
+--     FROM quality_filtered
+--     GROUP BY station_id, constituent, datetime, unit, station_origin
+-- )
 hourly_averaged AS (
+    -- Step 7: average_results
     SELECT
-        station_id, constituent,
-        DATE_TRUNC('hour', datetime + INTERVAL '30 minute') AS datetime,
+        station_id, 
+        constituent,
+        date,
+        -- If time is NOT NULL (sub-daily), round it to the nearest hour. 
+        -- If time IS NULL (daily), leave it as NULL.
+        CASE 
+            WHEN time IS NOT NULL THEN 
+                -- Combine date and time, round to nearest hour, and extract the TIME back out
+                CAST(DATE_TRUNC('hour', (date + time) + INTERVAL '30 minute') AS TIME)
+            ELSE NULL 
+        END AS time,
+        
         AVG(value) AS value,
-        unit, station_origin
+        unit, 
+        station_origin,
+        (date + time) AS datetime
     FROM quality_filtered
-    GROUP BY station_id, constituent, datetime, unit, station_origin
+    
+    GROUP BY 
+        station_id, 
+        constituent, 
+        date, 
+        time, 
+        unit, 
+        station_origin
 )
 
 SELECT * FROM hourly_averaged;

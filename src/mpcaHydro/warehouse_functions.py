@@ -200,19 +200,26 @@ def compute_baseflow(con, data_dir, method='Boughton', min_size=30):
     # Pull the clean flow data (from analytics or staging — your call)
     df_q = con.execute("""
         SELECT *
-        FROM staging.wiski
-        WHERE parametertype_id = 11500  -- discharge
-        ORDER BY station_no, Timestamp
+        FROM analytics.wiski
+        WHERE constituent = 'Q'  -- discharge
+        ORDER BY station_id, date, time
     """).fetch_df()
 
-    for station_id in df_q['station_no'].unique():
-        df_q_station = df_q[df_q['station_no'] == station_id]
-        if not df_q_station.empty:    
+    for station_id in df_q['station_id'].unique():
+        df_q_station = df_q.loc[df_q['station_id'] == station_id]
+        if not df_q_station.empty and len(df_q_station) >= min_size:    
             # Run the Python algorithm
-            bf = baseflow.separation(df_q_station.set_index('Timestamp')[['Value']], method=method)
-            df_q_station['Value'] = bf[method].values # ensure numeric for transformations
+            print(len(df_q_station))
+            bf = baseflow.separation(df_q_station.set_index('datetime')[['value']], method=method)
+            df_q_station.loc[:,'value'] = bf[method].values # ensure numeric for transformations
+            df_q_station = df_q_station.dropna(subset=['value']) # drop rows where baseflow couldn't be computed
+            df_q_station = df_q_station[['datetime','date','time','value','station_id','unit']].copy()
+            df_q_station['constituent'] = 'QB'  # baseflow constituent
+            df_q_station['station_origin'] = 'wiski'
+            df_q_station['date'] = df_q_station['datetime'].dt.date
             # Store results with same schema as staging
-            df_q_station.to_parquet(storage.staging_path(data_dir, 'derived', f'{station_id}').with_suffix('.parquet'), index=False)
+            derived_path = storage.derived_path(data_dir, 'baseflow', f'{station_id}').with_suffix('.parquet')
+            duckdb.sql(f"COPY df_q_station TO '{derived_path.as_posix()}' (FORMAT PARQUET)")
         else:
             print(f"Station {station_id} has insufficient data for baseflow separation (n={len(df_q_station)})")
     warehouse._refresh_derived_views(con, data_dir)
@@ -318,7 +325,10 @@ def get_observation_data(
     unit = UNIT_DEFAULTS.get(constituent, 'mg/l')
     agg_func = AGG_DEFAULTS.get(unit, 'mean')
 
-    df.set_index('datetime', inplace=True)
+    if df['datetime'].isnull().any():
+        df.set_index('date', inplace=True)
+    else:
+        df.set_index('datetime', inplace=True)
     df.attrs['unit'] = unit
     df.attrs['constituent'] = constituent
 
@@ -328,6 +338,34 @@ def get_observation_data(
 
     df.rename(columns={'value': 'observed'}, inplace=True)
     return df.dropna(subset=['observed'])
+
+def get_outlet_by_station(
+    con: duckdb.DuckDBPyConnection,
+    station_id: str,
+    station_origin: str
+) -> Optional[int]:
+    """Return the outlet_id for a given station, if it exists.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        Open DuckDB connection.
+    station_id : str
+        Station identifier.
+    station_origin : str
+        ``'wiski'`` or ``'equis'``.
+
+    Returns
+    -------
+    int or None
+        The outlet_id if it exists, otherwise None.
+    """
+    query = '''
+    SELECT outlet_id
+    FROM outlets.outlet_stations
+    WHERE station_id = ? AND station_origin = ?'''
+    result = con.execute(query, [station_id, station_origin]).fetchone()
+    return result[0] if result is not None else None
 
 
 def get_outlet_data(
@@ -371,7 +409,11 @@ def get_outlet_data(
     unit = UNIT_DEFAULTS.get(constituent, 'mg/l')
     agg_func = AGG_DEFAULTS.get(unit, 'mean')
 
-    df.set_index('datetime', inplace=True)
+    if df['datetime'].isnull().any():
+        df.set_index('date', inplace=True)
+    else:
+        df.set_index('datetime', inplace=True)
+
     df.attrs['unit'] = unit
     df.attrs['constituent'] = constituent
 
@@ -476,8 +518,8 @@ def get_constituent_summary(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
       station_origin,
       constituent,
       COUNT(*) AS sample_count,
-      year(MIN(datetime)) AS start_date,
-      year(MAX(datetime)) AS end_date
+      year(MIN(date)) AS start_date,
+      year(MAX(date)) AS end_date
     FROM
       analytics.observations
     GROUP BY
@@ -735,10 +777,17 @@ class DataManagerWrapper:
             Re-initialise the database when ``True``.
         """
 
-        self.con = warehouse.create_session(data_dir.as_posix())
+        self.con = warehouse.create_session(Path(data_dir).as_posix())
         self.data_dir = Path(data_dir)
         if reset:
             raise NotImplementedError('Reset functionality not implemented yet')
+
+    def _refresh_views(self):
+        """Refresh all database views."""
+        warehouse._refresh_staging_views(self.con, self.data_dir)
+        warehouse._refresh_derived_views(self.con, self.data_dir)
+        update_views(self.con)
+
 
     def update_views(self) -> None:
         """Refresh all analytics and reports views."""
@@ -796,12 +845,19 @@ class DataManagerWrapper:
         """
         compute_baseflow(self.con, self.data_dir, method, min_size)
 
-    def set_active_quality_codes(self, data_codes: Optional[List[int]] = None) -> None:
+    def set_active_quality_codes(self, data_codes: Optional[List[int]] = None, reset: bool = False) -> None:
         """Set the WISKI quality-code filtering options for analytics views.
 
         See :func:`set_active_quality_codes` for details.
         """
-        warehouse.set_active_quality_codes(self.con, data_codes)
+        warehouse.set_active_quality_codes(self.con, data_codes, reset)
+    
+    def set_active_sample_methods(self, sample_methods: Optional[List[str]] = None, reset: bool = False) -> None:
+        """Set the EQuIS sample-method filtering options for analytics views.
+
+        See :func:`set_active_sample_methods` for details.
+        """
+        warehouse.set_active_sample_methods(self.con, sample_methods, reset)
 
     def download_equis_data(
         self,

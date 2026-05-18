@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List
 import pandas as pd
 from mpcaHydro.sources import wiski, equis
+import duckdb
 
 DEFAULT_DATA_DIR = Path("data")
 
@@ -46,10 +47,11 @@ def derived_dir(data_dir: Path, name: str) -> Path:
     p.mkdir(parents=True, exist_ok=True)
     return p
 
-
 def staging_path(data_dir: Path, source: str, station_id: str) -> Path:
     return staging_dir(data_dir, source) / f"{station_id}.parquet"
 
+def derived_path(data_dir: Path, name: str, identifier: str) -> Path:
+    return derived_dir(data_dir, name) / f"{identifier}.parquet"
 
 def save_staging(
     df: pd.DataFrame,
@@ -83,7 +85,8 @@ def save_staging(
         df_combined = df
         new_count = len(df)
 
-    df_combined.to_parquet(path, index=False)
+
+    duckdb.sql(f"COPY df_combined TO '{path.as_posix()}' (FORMAT PARQUET)")
     return path, new_count
 
 
@@ -135,7 +138,7 @@ def download_wiski_data(
         else:
             df_combined = df_new
 
-        df_combined.to_parquet(existing_path, index=False)
+        duckdb.sql(f"COPY df_combined TO '{existing_path.as_posix()}' (FORMAT PARQUET)")
         print(f"{station_id}: added {len(df_new)} new rows ({len(df_combined)} total)")
 
 
@@ -182,7 +185,8 @@ def download_equis_data(
             else:
                 df_combined = df_new
 
-            df_combined.to_parquet(existing_path, index=False)
+
+            duckdb.sql(f"COPY df_combined TO '{existing_path.as_posix()}' (FORMAT PARQUET)")
             print(f"{station_id}: added {len(df_new)} new rows ({len(df_combined)} total)")
 
 

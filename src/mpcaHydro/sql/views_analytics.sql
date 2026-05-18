@@ -32,13 +32,13 @@
 -- View: observations
 -- Combined observations from equis and wiski processed tables
 CREATE OR REPLACE VIEW analytics.observations AS
-SELECT datetime, value, station_id, station_origin, constituent, unit
+SELECT datetime,date,time, value, station_id, station_origin, constituent, unit
 FROM analytics.equis
 UNION ALL
-SELECT datetime, value, station_id, station_origin, constituent, unit
+SELECT datetime,date,time, value, station_id, station_origin, constituent, unit
 FROM analytics.wiski
 UNION ALL
-SELECT datetime, value, station_id,station_origin, constituent, unit
+SELECT datetime,date,time, value, station_id,station_origin, constituent, unit
 FROM derived.baseflow;
 
 
@@ -46,6 +46,8 @@ FROM derived.baseflow;
 -- Links observations to model reaches via outlets
 CREATE OR REPLACE VIEW analytics.outlet_observations AS 
 SELECT
+    o.date,
+    o.time,
     o.datetime,
     os.outlet_id,
     o.constituent,
@@ -61,62 +63,75 @@ GROUP BY
     os.outlet_id,
     o.constituent,
     o.unit,
+    o.date,
+    o.time,
     o.datetime;
 
--- View: outlet_observations_with_flow
--- Outlet observations joined with flow and baseflow data
+
 CREATE OR REPLACE VIEW analytics.outlet_observations_with_flow AS
 WITH 
-    baseflow_data AS (
-        SELECT
-            outlet_id,
-            datetime,
-            "value" AS baseflow_value
-        FROM
-            analytics.outlet_observations
-        WHERE
-            constituent = 'QB'
+    -- 1. "Daily Era" Flow (Sensors recording only once a day)
+    daily_flow AS (
+        SELECT 
+            outlet_id, 
+            date,
+            AVG(CASE WHEN constituent = 'Q' THEN "value" END) as daily_flow,
+            AVG(CASE WHEN constituent = 'QB' THEN "value" END) as daily_baseflow
+        FROM analytics.outlet_observations
+        WHERE time IS NULL 
+          AND constituent IN ('Q', 'QB') -- Only look at flow here
+        GROUP BY 1, 2
     ),
 
-    flow_data AS (
-        SELECT
+    -- 2. "Sub-Daily Era" Flow 
+    subdaily_flow AS (
+        SELECT 
             outlet_id,
-            datetime,
-            "value" AS flow_value
-        FROM
-            analytics.outlet_observations
-        WHERE
-            constituent = 'Q'
+            date, 
+            date_trunc('hour', datetime) AS hour_bucket,
+            AVG(CASE WHEN constituent = 'Q' THEN "value" END) AS subdaily_flow,
+            AVG(CASE WHEN constituent = 'QB' THEN "value" END) AS subdaily_baseflow
+        FROM analytics.outlet_observations
+        WHERE time IS NOT NULL 
+          AND constituent IN ('Q', 'QB') -- Only look at flow here
+        GROUP BY 1, 2, 3
     ),
 
-    constituent_data AS (
-        SELECT
+    -- 3. Chemistry Samples (Do NOT group or aggregate these!)
+    chemistry AS (
+        SELECT 
             outlet_id,
             datetime,
+            date,
+            time,
+            -- Create a bucket solely for joining to the sub-daily flow
+            date_trunc('hour', datetime) AS hour_bucket, 
             constituent,
-            "value",
-            count
-        FROM
-            analytics.outlet_observations
-        WHERE
-            constituent NOT IN ('Q', 'QB')
+            "value" AS constituent_value
+        FROM analytics.outlet_observations
+        WHERE constituent NOT IN ('Q', 'QB')
     )
 
-SELECT
+-- 4. Bring it all together
+SELECT 
     c.outlet_id,
-    c.constituent,
     c.datetime,
-    c."value",
-    c.count,
-    f.flow_value,
-    b.baseflow_value
-FROM
-    constituent_data AS c
-LEFT JOIN
-    flow_data AS f
-    ON c.outlet_id = f.outlet_id 
-    AND c.datetime = f.datetime
-LEFT JOIN
-    baseflow_data AS b
-    ON c.outlet_id = b.outlet_id 
-    AND c.datetime = b.datetime;
+    c.date,
+    c.constituent,
+    c.constituent_value AS value,
+    
+    -- The Magic: Seamlessly transitions between hardware eras
+    COALESCE(sf.subdaily_flow, df.daily_flow) AS flow_value,
+    COALESCE(sf.subdaily_baseflow, df.daily_baseflow) AS baseflow_value
+
+FROM chemistry c
+
+-- Join the hourly flow bucket to the chemistry sample
+LEFT JOIN subdaily_flow sf
+    ON c.outlet_id = sf.outlet_id 
+    AND c.hour_bucket = sf.hour_bucket
+
+-- Join the daily flow fallback
+LEFT JOIN daily_flow df
+    ON c.outlet_id = df.outlet_id 
+    AND c.date = df.date;
