@@ -46,21 +46,6 @@ quality_filtered AS (
 ),
 
 
---year_filtered AS (
---    SELECT *
---    FROM quality_filtered
---    WHERE year(datetime) >= getvariable('min_year')
---),
-
--- hourly_averaged AS (
---     SELECT
---         station_id, constituent,
---         DATE_TRUNC('hour', datetime + INTERVAL '30 minute') AS datetime,
---         AVG(value) AS value,
---         unit, station_origin
---     FROM quality_filtered
---     GROUP BY station_id, constituent, datetime, unit, station_origin
--- )
 hourly_averaged AS (
     -- Step 7: average_results
     SELECT
