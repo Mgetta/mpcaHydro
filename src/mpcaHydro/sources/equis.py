@@ -17,7 +17,7 @@ that typically occur on scheduled sampling visits.
 
 This module provides functions to:
 
-* **Connect** to the Oracle EQuIS database (``DELTAT`` instance).
+* **Connect** to the Oracle EQuIS database (``DELTAW`` instance).
 * **Download** raw result rows for a list of station IDs, filtered to
   HSPF-relevant constituents and river/stream locations.
 * **Normalize** the raw Oracle output — map CAS registry numbers to
@@ -93,7 +93,7 @@ _TARGET_TZ = 'Etc/GMT+6'  # UTC-6 (note: POSIX convention flips the sign)
 def connect(
     user: str = None,
     password: str = None,
-    host: str = "DELTAT",
+    host: str = "DELTAW",
     port: int = 1521,
     sid: str = None
 ):
@@ -129,11 +129,11 @@ def connect(
         Oracle username.
     password : str
         Oracle password.
-    host : str, default ``'DELTAT'``
+    host : str, default ``'DELTAW'``
         Oracle host name or IP address.
     port : int, default 1521
         Oracle listener port.
-    sid : str, default ``'DELTAT'``
+    sid : str, default ``'DELTAW'``
         Oracle System Identifier.
 
     Returns
@@ -340,10 +340,6 @@ def download(station_ids, connection: Optional[oracledb.Connection] = None):
     ValueError
         If no connection is available.
     """
-    conn = connection if connection is not None else CONNECTION
-    if conn is None:
-        raise ValueError("No connection provided and global CONNECTION is not set. Call connect() first or pass a connection.")
-    
     placeholders, binds = make_placeholders(station_ids)
     query = f"""
 SELECT
@@ -380,9 +376,14 @@ SELECT
         AND mpca_dal.mv_eq_result.facility_id IN ( 1, 33836701 )
         AND mpca_dal.mv_eq_result.sys_loc_code IN ({placeholders})
     """
+    conn = connect()
     with conn.cursor() as cursor:
         cursor.execute(query,binds)
-        return to_dataframe(cursor)
+        df = to_dataframe(cursor)
+        df['grain'] = 'discrete'
+        df['statistic'] = 'INST'
+    close_connection(conn)
+    return df
     
 
 

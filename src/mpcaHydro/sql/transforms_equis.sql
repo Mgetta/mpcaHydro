@@ -37,15 +37,34 @@ unit_converted AS (
     FROM timezone_normalized
 ),
 
+
+columns_normalized AS (
+    -- Step 4: normalize_columns
+    SELECT
+        SYS_LOC_CODE AS station_id,
+        constituent,
+        value,
+        unit,
+        'equis' AS station_origin,
+        CAST(datetime AS DATE) AS date,
+        CAST(datetime AS TIME) AS time,
+        DETECT_FLAG as detect_flag,
+        REPORTING_DETECTION_LIMIT as reporting_detection_limit,
+        SAMPLE_METHOD as sample_method
+    FROM unit_converted
+),
+    
+
+
 nondetects_replaced AS (
     -- Step 5: flag and replace_nondetects with 1/2 the detection limit
     SELECT *,
         CASE
-            WHEN DETECT_FLAG = 'N' THEN CAST(REPORTING_DETECTION_LIMIT AS FLOAT) / 2.0
+            WHEN detect_flag = 'N' THEN CAST(reporting_detection_limit AS FLOAT) / 2.0
             ELSE value
         END AS value
     --- COALESCE(value, 0) AS value, -- Optionally replace NULLs with 0, or you could choose to leave them as NULL
-    FROM unit_converted
+    FROM columns_normalized
 ),
 
 
@@ -58,31 +77,6 @@ sample_method_filtered AS (
     WHERE esm.include = 1
 ),
 
-columns_normalized AS (
-    -- Step 4: normalize_columns
-    SELECT
-        SYS_LOC_CODE AS station_id,
-        constituent,
-        value,
-        unit,
-        'equis' AS station_origin,
-        CAST(datetime AS DATE) AS date,
-        CAST(datetime AS TIME) AS time
-    FROM sample_method_filtered
-),
-    
-
-
--- year_filtered AS (
---     -- Step 6: filter_years
---     SELECT * FROM nondetects_replaced
---     WHERE year(datetime) >= getvariable('min_year')
--- ),
-
--- sample_method_filtered AS (
---     -- Step 6: filter_sample_methods     SELECT * FROM nondetects_replaced
---     WHERE sample_method IN ('G-EVT', 'G', 'FIELDMSROBS', 'LKSURF1M', 'LKSURF2M', 'LKSURFOTH')
--- ),
 
 hourly_averaged AS (
     -- Step 7: average_results
@@ -103,7 +97,7 @@ hourly_averaged AS (
         unit, 
         station_origin,
         (date + time) AS datetime
-    FROM columns_normalized
+    FROM sample_method_filtered
     
     GROUP BY 
         station_id, 

@@ -98,7 +98,7 @@ def download_wiski_data(
     station_ids: List[str],
     start_year: int = 1996,
     end_year: int = 2030,
-    overwrite: bool = True) -> None:
+    replace: bool = True) -> None:
     """Download WISKI data, transform it, and load both raw and analytics.
 
     End-to-end convenience function that:
@@ -147,7 +147,7 @@ def download_equis_data(
     station_ids: List[str],
     oracle_username: Optional[str] = None,
     oracle_password: Optional[str] = None,
-    overwrite: bool = True) -> None:
+    replace: bool = True) -> None:
     """Download EQuIS data, transform it, and load both raw and analytics.
 
     End-to-end convenience function that:
@@ -834,9 +834,8 @@ class DataManagerWrapper:
 
         See :func:`download_wiski_data` for details.
         """
-        download_wiski_data(
-            self.con, self.data_dir, station_ids, start_year, end_year, replace
-        )
+        storage.download_wiski_data(station_ids, start_year, end_year, self.data_dir, replace = replace)
+
     
     def compute_baseflow(self, method='Boughton', min_size=30) -> None:
         """Compute baseflow from hourly Q data and store in derived.
@@ -862,15 +861,13 @@ class DataManagerWrapper:
     def download_equis_data(
         self,
         station_ids: List[str],
-        oracle_username: Optional[str] | None = None,
-        oracle_password: Optional[str] | None = None,
         replace: bool = False
     ) -> None:
         """Download EQuIS data and load into the warehouse.
 
         See :func:`download_equis_data` for details.
         """
-        download_equis_data(self.con, self.data_dir, station_ids, oracle_username, oracle_password, replace)
+        storage.download_equis_data(station_ids, self.data_dir, replace)
     
     def get_outlets(self, model_name: str) -> pd.DataFrame:
         """Get outlet station-reach pairs for a model.

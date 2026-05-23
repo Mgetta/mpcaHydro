@@ -59,7 +59,7 @@ import pandas as pd
 from mpcaHydro.sources import pywisk
 import baseflow as bf
 import time
-
+import concurrent
 
 #%% Define Selectors and Maps
 PARAMETERTYPE_MAP ={'11522': 'TP',
@@ -374,25 +374,103 @@ def _download(constituent, station_nos, start_year=1996, end_year=2030, wplmn=Fa
         ts_ids = pywisk.get_ts_ids(station_nos = station_nos,
                             stationparameter_no = constituent_nos,
                             ts_name = ts_names['unit'])
-        
         if ts_ids.empty:
             ts_ids = pywisk.get_ts_ids(station_nos = station_nos,
                                 stationparameter_no = constituent_nos,
                                 ts_name = ts_names['daily'])
+            statistic = 'MEAN'
             if ts_ids.empty:
                 return pd.DataFrame()    
+        else:
+            statistic = 'INST'
+        
         
         df = convert_to_df(ts_ids['ts_id'],start_year,end_year)
 
+        
         if df.empty:
             print(f'No data found for station {station_nos} and constituent {constituent}')
             return pd.DataFrame()    
+        
+        df['Date'] = df['Timestamp'].dt.date
+        df['Time'] = pd.NA
+        df['Timezone'] = 'CST'
+        if statistic == 'INST':
+            df['Time'] = df['Timestamp'].dt.time
+        df['statistic'] = statistic
+        df['grain'] = 'continuous'
+
     else:
         df = pd.DataFrame()
     return df
 
 
-def download_chunk(ts_id, start_year=1996, end_year=2030, interval=2, as_json=False):
+
+def _nominal_interval(df, groupby_columns):
+    """Compute time differences between consecutive records within each group."""
+    diffs = (
+        df.index.to_series()
+        .groupby([df[c] for c in groupby_columns])
+        .diff()
+        .dt.total_seconds()
+        .div(60)
+    )
+    df['interval_minutes'] = diffs
+
+    #calculate mode of interval_minutes for each groupby subset
+    modes = df.groupby(groupby_columns)['interval_minutes'].agg(lambda x: x.mode().iloc[0] if not x.mode().empty else pd.NA)
+    
+
+    return modes
+
+def _interval(df, groupby_columns=['station_id', 'constituent']):
+    """For each groupby subset, find continuous segments with more than 10
+    records and return the mode of the interval (in minutes) per group.
+
+    Assumes the DataFrame index is a datetime.
+    """
+    # compute diffs between consecutive datetime-index values within each group
+    diffs = (
+        df.index.to_series()
+        .groupby([df[c] for c in groupby_columns])
+        .diff()
+        .dt.total_seconds()
+        .div(60)
+    )
+    df['interval_minutes'] = diffs
+
+    def _mode_of_long_segments(s, min_len=2):
+        # a new segment starts whenever the interval changes
+        seg_id = (s != s.shift()).cumsum()
+        seg_sizes = seg_id.map(seg_id.value_counts())
+        long_vals = s[seg_sizes > min_len].dropna()
+        if long_vals.empty:
+            return pd.NA
+        return long_vals.mode().iloc[0]
+
+    modes = (
+        df.groupby(groupby_columns)['interval_minutes']
+        .apply(_mode_of_long_segments)
+        .rename('interval_minutes_mode')
+    )
+
+    modes = modes.dropna().reset_index()
+
+
+
+    modes_grouper = modes.groupby(groupby_columns)
+
+    modes_count = modes_grouper.count()
+    assert (modes_count['interval_minutes_mode'] == 1).all(), f'Multiple modes found for some station/constituent groups: {modes_count[modes_count["interval_minutes_mode"] > 1]}'        
+
+    intervals = modes_grouper.first()['interval_minutes_mode']
+
+    return intervals
+
+# For each groupby pair flag groups that have varying interval minutes, which indicates a mix of different time resolutions (e.g. 15-minute and daily) that should be separated before loading to the warehouse.
+
+
+def download_chunk_legacy(ts_id, start_year=1996, end_year=2030, interval=2, as_json=False):
     """Download a single time-series in year-chunked windows.
 
     Splits the ``[start_year, end_year]`` range into sub-ranges of
@@ -437,7 +515,60 @@ def download_chunk(ts_id, start_year=1996, end_year=2030, interval=2, as_json=Fa
         df = pd.concat(frames, ignore_index=True)
 
     return df
+
+
+def _generate_date_ranges(start_year, end_year, interval):
+    """Sub-procedure 1: Calculate all the 2-year window boundaries."""
+    for start in range(start_year, end_year + 1, interval):
+        end = min(start + interval - 1, end_year)
+        yield f'{start}-01-01', f'{end}-12-31'
+
+def _fetch_and_clean_chunk(ts_id, start_date, end_date, as_json):
+    """Sub-procedure 2: Execute a single network request and clean its output."""
+    try:
+        df = pywisk.get_ts(ts_id, start_date=start_date, end_date=end_date, as_json=as_json)
+        
+        if not df.empty:
+            df['Timestamp'] = pd.to_datetime(df['Timestamp']).dt.tz_localize(None)
+        
+        return df
     
+    except Exception as exc:
+        print(f"FAILED chunk {start_date} to {end_date} for ts_id {ts_id}. Error: {exc}")
+        return pd.DataFrame()  # Always return a DataFrame, even if empty, for consistency
+
+def download_chunk(ts_id, start_year=1996, end_year=2030, interval=2, as_json=False):
+    """
+    Main Procedure: Coordinates generating dates, fetching data concurrently, 
+    and compiling the final dataset.
+    """
+    # 1. Plan the work
+    date_ranges = list(_generate_date_ranges(start_year, end_year, interval))
+    frames = []
+
+    # 2. Execute the work concurrently
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        # Submit all chunk requests to the pool
+        futures = [
+            executor.submit(_fetch_and_clean_chunk, ts_id, start, end, as_json)
+            for start, end in date_ranges
+        ]
+
+        # Gather completed dataframes
+        for future in concurrent.futures.as_completed(futures):
+            df = future.result()
+            if not df.empty:
+                frames.append(df)
+
+    # 3. Assemble and sort the final product
+    if not frames:
+        return pd.DataFrame()
+        
+    final_df = pd.concat(frames, ignore_index=True)
+    final_df = final_df.sort_values('Timestamp').reset_index(drop=True)
+
+    return final_df
+
 def convert_to_df(ts_ids, start_year=1996, end_year=2030):
     """Download and concatenate data for multiple time-series IDs.
 
@@ -474,155 +605,6 @@ def convert_to_df(ts_ids, start_year=1996, end_year=2030):
         dfs.append(download_chunk(ts_id, ts_start, ts_end))
         time.sleep(0.1)
     return pd.concat(dfs)
-
-
-def discharge(station_nos, start_year=1996, end_year=2030):
-    """Download discharge (``Q``) data for the given station(s).
-
-    Convenience wrapper around :func:`_download`.
-
-    Parameters
-    ----------
-    station_nos : str
-        WISKI station number.
-    start_year : int, default 1996
-        First calendar year.
-    end_year : int, default 2030
-        Last calendar year.
-
-    Returns
-    -------
-    pandas.DataFrame
-    """
-    return _download('Q', station_nos, start_year, end_year)
-
-
-def temperature(station_nos, start_year=1996, end_year=2030):
-    """Download water temperature (``WT``) data for the given station(s).
-
-    Parameters
-    ----------
-    station_nos : str
-        WISKI station number.
-    start_year : int, default 1996
-        First calendar year.
-    end_year : int, default 2030
-        Last calendar year.
-
-    Returns
-    -------
-    pandas.DataFrame
-    """
-    return _download('WT', station_nos, start_year, end_year)
-
-
-def orthophosphate(station_nos, start_year=1996, end_year=2030):
-    """Download orthophosphate (``OP``) data for the given station(s).
-
-    Parameters
-    ----------
-    station_nos : str
-        WISKI station number.
-    start_year : int, default 1996
-        First calendar year.
-    end_year : int, default 2030
-        Last calendar year.
-
-    Returns
-    -------
-    pandas.DataFrame
-    """
-    return _download('OP', station_nos, start_year, end_year)
-
-def dissolved_oxygen(station_nos, start_year=1996, end_year=2030):
-    """Download dissolved oxygen (``DO``) data for the given station(s).
-
-    Parameters
-    ----------
-    station_nos : str
-        WISKI station number.
-    start_year : int, default 1996
-        First calendar year.
-    end_year : int, default 2030
-        Last calendar year.
-
-    Returns
-    -------
-    pandas.DataFrame
-    """
-    return _download('DO', station_nos, start_year, end_year)
-
-def nitrogen(station_nos, start_year=1996, end_year=2030):
-    """Download nitrogen (``N``) data for the given station(s).
-
-    Parameters
-    ----------
-    station_nos : str
-        WISKI station number.
-    start_year : int, default 1996
-        First calendar year.
-    end_year : int, default 2030
-        Last calendar year.
-
-    Returns
-    -------
-    pandas.DataFrame
-    """
-    return _download('N', station_nos, start_year, end_year)
-
-def total_suspended_solids(station_nos, start_year=1996, end_year=2030):
-    """Download total suspended solids (``TSS``) data for the given station(s).
-
-    Parameters
-    ----------
-    station_nos : str
-        WISKI station number.
-    start_year : int, default 1996
-        First calendar year.
-    end_year : int, default 2030
-        Last calendar year.
-
-    Returns
-    -------
-    pandas.DataFrame
-    """
-    return _download('TSS', station_nos, start_year, end_year)
-
-def total_phosphorous(station_nos, start_year=1996, end_year=2030):
-    """Download total phosphorus (``TP``) data for the given station(s).
-
-    Parameters
-    ----------
-    station_nos : str
-        WISKI station number.
-    start_year : int, default 1996
-        First calendar year.
-    end_year : int, default 2030
-        Last calendar year.
-
-    Returns
-    -------
-    pandas.DataFrame
-    """
-    return _download('TP', station_nos, start_year, end_year)
-
-def tkn(station_nos, start_year=1996, end_year=2030):
-    """Download total Kjeldahl nitrogen (``TKN``) data for the given station(s).
-
-    Parameters
-    ----------
-    station_nos : str
-        WISKI station number.
-    start_year : int, default 1996
-        First calendar year.
-    end_year : int, default 2030
-        Last calendar year.
-
-    Returns
-    -------
-    pandas.DataFrame
-    """
-    return _download('TKN', station_nos, start_year, end_year)
 
 
 

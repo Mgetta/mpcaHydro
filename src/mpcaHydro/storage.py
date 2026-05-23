@@ -103,18 +103,26 @@ def download_wiski_data(
     start_year: int = 1996,
     end_year: int = 2030,
     data_dir: Path = DEFAULT_DATA_DIR,
-    wplmn: bool = False
+    wplmn: bool = False,
+    replace: bool = False
 ) -> None:
     """Download WISKI data for the given stations and save to staging, deduplicating against existing data."""
     
+
+
     keys = NATURAL_KEYS['wiski']
     for station_id in station_ids:
+
+        if replace:
+            drop_stations([station_id], data_dir, source='wiski')
+
         df_new = wiski.download([station_id], start_year=start_year, end_year=end_year, wplmn=wplmn)
 
         if df_new.empty:
             print(f"No data for {station_id}")
             continue
 
+        
         # Load what we already have for this station
         existing_path = staging_path(data_dir, 'wiski', station_id)
 
@@ -145,10 +153,8 @@ def download_wiski_data(
         
 def download_equis_data(
     station_ids: List[str],
-    start_year: int = 1996,
-    end_year: int = 2030,
     data_dir: Path = DEFAULT_DATA_DIR,
-    wplmn: bool = False
+    replace: bool = False
 ) -> None:
     """Download EQUIS data for the given stations and save to staging, deduplicating against existing data."""
     
@@ -160,6 +166,10 @@ def download_equis_data(
 
     else:
         for station_id in df_equis['SYS_LOC_CODE'].unique():
+            
+            if replace:
+                drop_stations([station_id], data_dir, source='equis')
+
             df_new = df_equis[df_equis['SYS_LOC_CODE'] == station_id]
             
             # Load what we already have for this station
@@ -189,6 +199,14 @@ def download_equis_data(
             duckdb.sql(f"COPY df_combined TO '{existing_path.as_posix()}' (FORMAT PARQUET)")
             print(f"{station_id}: added {len(df_new)} new rows ({len(df_combined)} total)")
 
-
+def drop_stations(station_ids: List[str], data_dir: Path, source: str) -> None:
+    """Delete staging files for the given station IDs and source."""
+    for station_id in station_ids:
+        path = staging_path(data_dir, source, station_id)
+        if path.exists():
+            path.unlink()
+            print(f"Deleted {path}")
+        else:
+            print(f"No file to delete for {station_id} at {path}")
 
 
