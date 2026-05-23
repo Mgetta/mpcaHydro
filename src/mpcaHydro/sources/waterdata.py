@@ -13,12 +13,15 @@ def _get_parameter_codes():
     return params
 
 
-def info(station_ids = None, huc = None, skip_geometry = False):
+def info(station_ids = None, huc = None, parameter_codes = None, skip_geometry = False):
      
     if huc is not None:
           station_ids = find_stations(huc)['monitoring_location_id'].to_list()
     elif station_ids is None:
         raise ValueError("Must provide either station_ids or huc")
+
+    if parameter_codes is None:
+        parameter_codes = list(_STANDARD_PARAMS.values())
 
     gdf, _ = waterdata.get_time_series_metadata(monitoring_location_id=station_ids,
                                                 parameter_code=list(_STANDARD_PARAMS.values()),
@@ -41,15 +44,16 @@ def download(station_ids, constituents = None, start_year=None, end_year=None):
 
 
     dfs = []
-    df = info(station_ids=station_ids, skip_geometry=True,parameter_code = params)
+    df = info(station_ids=station_ids, skip_geometry=True,parameter_codes = params)
     for _, row in df.iterrows():
         print(f"Downloading {row['monitoring_location_id']} {row['parameter_code']} {row['statistic_id']}")
-        if row['computation_period_identifier'] == 'Daily':
-            dfs.append(waterdata.get_daily(row['time_series_id'], skip_geometry=True))
-
-        elif row['computation_period_identifier'] == 'Instantaneous':
-            dfs.append(_download_continuous(row['time_series_id'], row['begin_date'].year, row['end_date'].year, start_year, end_year))
-
+        if row['computation_period_identifier'] == 'Daily' and (row['computation_identifier'] == 'Mean'):
+            data, _ = waterdata.get_daily(row['time_series_id'], skip_geometry=True)
+        elif row['computation_period_identifier'] == 'Points':
+            data,_ = _download_continuous(row['time_series_id'], row['begin'].year, row['end'].year, start_year, end_year)
+        else:
+            raise ValueError(f"Unsupported computation period: {row['computation_period_identifier']} for time series {row['time_series_id']}")
+        dfs.append(data)
     df = pd.concat(dfs, ignore_index=True)
   
     return df
@@ -87,6 +91,18 @@ def _download_continuous(timeseries_id,start_year=None,end_year=None,ts_start_ye
     df = pd.concat(dfs, ignore_index=True)  
     return df
 
+
+def _filter_non_detects(df):
+    raise NotImplementedError("Non-detect filtering not implemented yet. Need to understand how WQP encodes non-detects in the results.")   
+
+def _aggregate(df):
+    raise NotImplementedError("Daily aggregation not implemented yet. Need to understand how to handle multiple samples per day, especially if there are non-detects.")
+
+def _normalize_columns(df):
+    raise NotImplementedError("Column normalization not implemented yet. Need to decide on a standard set of columns and how to handle missing or extra columns from WQP.") 
+
+def _convert_units(df):
+    raise NotImplementedError("Unit conversion not implemented yet. Need to understand the units used in WQP and how to convert them to a standard set of units for our database.") 
 
 
 
