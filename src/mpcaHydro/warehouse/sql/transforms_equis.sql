@@ -50,7 +50,10 @@ columns_normalized AS (
         CAST(datetime AS TIME) AS time,
         DETECT_FLAG as detect_flag,
         REPORTING_DETECTION_LIMIT as reporting_detection_limit,
-        SAMPLE_METHOD as sample_method
+        SAMPLE_METHOD as sample_method,
+        grain,
+        statistic,
+        interval_minutes
     FROM unit_converted
 ),
     
@@ -95,6 +98,9 @@ hourly_averaged AS (
         
         AVG(value) AS value,
         unit, 
+        grain,
+        'MEAN' AS statistic,
+        60 AS interval_minutes,
         station_origin,
         (date + time) AS datetime
     FROM sample_method_filtered
@@ -105,6 +111,9 @@ hourly_averaged AS (
         date, 
         time, 
         unit, 
+        grain,
+        statistic,
+        interval_minutes,
         station_origin
 )
 

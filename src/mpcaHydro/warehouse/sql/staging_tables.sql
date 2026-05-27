@@ -72,6 +72,7 @@ SELECT
     CAST(NULL AS DOUBLE) AS EBATCH,
     CAST(NULL AS VARCHAR) AS grain,
     CAST(NULL AS VARCHAR) AS statistic,
+    CAST(NULL AS VARCHAR) AS interval_minutes
 WHERE FALSE;
 
 -- staging.wiski schema
@@ -97,5 +98,6 @@ SELECT
     CAST(NULL AS VARCHAR) AS stationparameter_name,
     CAST(NULL AS VARCHAR) AS grain,
     CAST(NULL AS VARCHAR) AS statistic,
+    CAST(NULL AS VARCHAR) AS interval_minutes,
     CAST(NULL AS BIGINT) AS wplmn_flag
 WHERE FALSE;

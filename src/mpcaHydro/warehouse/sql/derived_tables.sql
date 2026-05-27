@@ -28,6 +28,9 @@ SELECT
     CAST(NULL AS VARCHAR) AS station_origin,
     CAST(NULL AS VARCHAR) AS constituent,
     CAST(NULL AS VARCHAR) AS unit,
+    CAST(NULL AS VARCHAR) AS grain,
+    CAST(NULL AS VARCHAR) AS statistic,
+    CAST(NULL AS VARCHAR) AS interval_minutes
 WHERE FALSE;
 -- CREATE OR REPLACE TABLE derived.baseflow (
 --     datetime TIMESTAMP,

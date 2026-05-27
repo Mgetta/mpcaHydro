@@ -5,13 +5,13 @@
 -- View: observations
 -- Combined observations from equis and wiski processed tables
 CREATE OR REPLACE VIEW analytics.observations AS
-SELECT datetime,date,time, value, station_id, station_origin, constituent, unit
+SELECT datetime,date,time, value, station_id, station_origin, constituent, unit, grain, statistic, interval_minutes
 FROM analytics.equis
 UNION ALL
-SELECT datetime,date,time, value, station_id, station_origin, constituent, unit
+SELECT datetime,date,time, value, station_id, station_origin, constituent, unit, grain, statistic, interval_minutes
 FROM analytics.wiski
 UNION ALL
-SELECT datetime,date,time, value, station_id,station_origin, constituent, unit
+SELECT datetime,date,time, value, station_id,station_origin, constituent, unit, grain, statistic, interval_minutes
 FROM derived.baseflow;
 
 

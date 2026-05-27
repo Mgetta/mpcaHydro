@@ -30,7 +30,10 @@ normalized AS (
         converted_value AS value,
         unit,
         "Quality Code" AS quality_code,
-        'wiski' AS station_origin
+        'wiski' AS station_origin,
+        grain,
+        statistic,
+        interval_minutes
     FROM unit_converted u
     JOIN mappings.wiski_parametertype m
         ON u.parametertype_id = m.parametertype_id
@@ -63,6 +66,9 @@ hourly_averaged AS (
         
         AVG(value) AS value,
         unit, 
+        grain,
+        'MEAN' AS statistic,
+        60 AS interval_minutes,
         station_origin,
         (date + time) AS datetime
     FROM quality_filtered
@@ -73,6 +79,9 @@ hourly_averaged AS (
         date, 
         time, 
         unit, 
+        grain,
+        statistic,
+        interval_minutes,
         station_origin
 )
 

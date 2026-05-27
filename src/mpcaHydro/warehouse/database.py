@@ -1,8 +1,8 @@
 """
-warehouse
+database
 =========
 
-DuckDB data warehouse for storing, transforming, and querying hydrological
+DuckDB data database for storing, transforming, and querying hydrological
 observation data used in HSPF model calibration.
 
 Overview
@@ -156,30 +156,30 @@ from typing import List
 import duckdb
 import pandas as pd
 from pathlib import Path
-from mpcaHydro import outlets
-from mpcaHydro import sql_loader
+from mpcaHydro.warehouse import outlets
+from mpcaHydro.warehouse import sql_loader
 
 
-def create_session(data_dir: str = "data",
-                   wiski_quality_codes: List[int] = None,
-                   min_year: int = 1996) -> duckdb.DuckDBPyConnection:
+def create_session(data_dir: str | Path = 'data') -> duckdb.DuckDBPyConnection:
     
+    data_dir = Path(data_dir)
+
+
     # Create in-memory DuckDB connection and build schemas
     con = duckdb.connect()
     con.execute(sql_loader.get_schemas_sql())
     
-    # Craeate outlets tables and views first
+    # Create outlets tables and views first
     con.execute(sql_loader.get_outlets_schema_sql())
     con.execute(sql_loader.get_views_outlets_sql())
     outlets.build_outlets(con, model_name=None)
 
-    #create mapping tables (e.g. WISKI parametertype_id → constituent)
+    # Create mapping tables (e.g. WISKI parametertype_id → constituent)
     create_mapping_tables(con)
 
 
     # Create empty staging tables first — guarantees the names exist
     con.execute(sql_loader.get_staging_tables_sql())
-    con.execute(sql_loader.get_outlets_schema_sql())
     con.execute(sql_loader.get_derived_tables_sql())
     _refresh_staging_views(con, data_dir)
     _refresh_derived_views(con, data_dir)
@@ -218,7 +218,7 @@ def _refresh_derived_views(con: duckdb.DuckDBPyConnection, data_dir: str):
             SELECT * FROM read_parquet('{data_dir}/derived/baseflow/*.parquet', union_by_name=true);
         """)
 
-def validate_schemas(con: duckdb.DuckDBPyConnection):
+def _validate_schemas(con: duckdb.DuckDBPyConnection):
     """Validate that the database contains all expected schemas.
 
     Parameters
@@ -239,7 +239,7 @@ def validate_schemas(con: duckdb.DuckDBPyConnection):
     if missing_schemas:
         raise ValueError(f"Missing schemas: {missing_schemas}")
 
-def validate_tables(con: duckdb.DuckDBPyConnection, schema: str, expected_tables: set):
+def _validate_tables(con: duckdb.DuckDBPyConnection, schema: str, expected_tables: set):
     """Validate that a schema contains the expected tables.
 
     Parameters
@@ -325,10 +325,11 @@ def create_mapping_tables(con: duckdb.DuckDBPyConnection):
     create_wiski_quality_codes_table(con)
     create_equis_sample_method_table(con)
 
+
 #TODO move these to sql code
 def create_wiski_quality_codes_table(con: duckdb.DuckDBPyConnection):
     """Create the mappings.wiski_quality_codes table from the CSV file."""
-    wiski_qc_csv_path = Path(__file__).parent / 'data/WISKI_QUALITY_CODES.csv'
+    wiski_qc_csv_path = Path(__file__).parent.parent / 'data/WISKI_QUALITY_CODES.csv'
     if wiski_qc_csv_path.exists():
         con.execute(f"CREATE OR REPLACE TABLE mappings.wiski_quality_codes AS SELECT * FROM read_csv_auto('{wiski_qc_csv_path.as_posix()}')")
     else:
@@ -400,31 +401,3 @@ def update_views(con: duckdb.DuckDBPyConnection):
     #con.execute(sql_loader.get_transforms_baseflow_sql())
     con.execute(sql_loader.get_views_analytics_sql())
     con.execute(sql_loader.get_views_reports_sql())
-
-def get_column_names(con: duckdb.DuckDBPyConnection, table_schema: str, table_name: str) -> list:
-    """Return the column names of a table.
-
-    Parameters
-    ----------
-    con : duckdb.DuckDBPyConnection
-        Open DuckDB connection.
-    table_schema : str
-        Schema containing the table.
-    table_name : str
-        Name of the table.
-
-    Returns
-    -------
-    list of str
-        Column names in ordinal position order.
-    """
-    #table_schema, table_name = table_name.split('.')
-    query = """
-    SELECT column_name
-    FROM information_schema.columns
-    WHERE table_name = ? AND table_schema = ?
-    """
-    result = con.execute(query,[table_name,table_schema]).fetchall()
-    column_names = [row[0] for row in result]
-    return column_names
-
