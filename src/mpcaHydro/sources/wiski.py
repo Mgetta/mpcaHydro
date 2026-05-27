@@ -384,14 +384,15 @@ def _download(constituent, station_nos, start_year=1996, end_year=2030, wplmn=Fa
         else:
             statistic = 'INST'
         
+        for ts_id in ts_ids['ts_id'].to_list():
+            print(f'Downloading {constituent} data for station {station_nos} (ts_id {ts_id})')
+            df = convert_to_df(ts_id,start_year,end_year)
+            if df.empty:
+                print(f'No data found for station {station_nos} and constituent {constituent}')
+                return pd.DataFrame()
+            df['interval_minutes'] = int(_nominal_interval(df.set_index('Timestamp'),['station_no']).iloc[0])
         
-        df = convert_to_df(ts_ids['ts_id'],start_year,end_year)
-
-        
-        if df.empty:
-            print(f'No data found for station {station_nos} and constituent {constituent}')
-            return pd.DataFrame()    
-        
+        df['constituent'] = constituent  
         df['Date'] = df['Timestamp'].dt.date
         df['Time'] = pd.NA
         df['Timezone'] = 'CST'
@@ -458,14 +459,14 @@ def _interval(df, groupby_columns=['station_id', 'constituent']):
 
 
 
-    modes_grouper = modes.groupby(groupby_columns)
+    #modes_grouper = modes.groupby(groupby_columns)
 
-    modes_count = modes_grouper.count()
-    assert (modes_count['interval_minutes_mode'] == 1).all(), f'Multiple modes found for some station/constituent groups: {modes_count[modes_count["interval_minutes_mode"] > 1]}'        
+    #modes_count = modes_grouper.count()
+    #assert (modes_count['interval_minutes_mode'] == 1).all(), f'Multiple modes found for some station/constituent groups: {modes_count[modes_count["interval_minutes_mode"] > 1]}'        
 
-    intervals = modes_grouper.first()['interval_minutes_mode']
+    #intervals = modes_grouper.first()['interval_minutes_mode']
 
-    return intervals
+    return modes
 
 # For each groupby pair flag groups that have varying interval minutes, which indicates a mix of different time resolutions (e.g. 15-minute and daily) that should be separated before loading to the warehouse.
 
@@ -569,7 +570,7 @@ def download_chunk(ts_id, start_year=1996, end_year=2030, interval=2, as_json=Fa
 
     return final_df
 
-def convert_to_df(ts_ids, start_year=1996, end_year=2030):
+def convert_to_df(ts_id, start_year=1996, end_year=2030):
     """Download and concatenate data for multiple time-series IDs.
 
     For each *ts_id* the available date range is queried first, and
@@ -590,21 +591,18 @@ def convert_to_df(ts_ids, start_year=1996, end_year=2030):
     pandas.DataFrame
         Concatenated time-series data.
     """
-    dfs = []
-    for ts_id in ts_ids:
-        ts_info = pywisk.get_ts_ids(ts_ids=ts_id)[['from', 'to']]
+    ts_info = pywisk.get_ts_ids(ts_ids=ts_id)[['from', 'to']]
 
-        # Scope date narrowing to this TS ID only
-        ts_start = start_year
-        ts_end = end_year
-        if ts_info['from'].iloc[0] != '':
-            ts_start = int(ts_info['from'].iloc[0][:4])
-        if ts_info['to'].iloc[0] != '':
-            ts_end = int(ts_info['to'].iloc[0][:4])
+    # Scope date narrowing to this TS ID only
+    ts_start = start_year
+    ts_end = end_year
+    if ts_info['from'].iloc[0] != '':
+        ts_start = int(ts_info['from'].iloc[0][:4])
+    if ts_info['to'].iloc[0] != '':
+        ts_end = int(ts_info['to'].iloc[0][:4])
 
-        dfs.append(download_chunk(ts_id, ts_start, ts_end))
-        time.sleep(0.1)
-    return pd.concat(dfs)
+    df = download_chunk(ts_id, ts_start, ts_end)
+    return df
 
 
 

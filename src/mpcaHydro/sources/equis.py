@@ -382,6 +382,7 @@ SELECT
         df = to_dataframe(cursor)
         df['grain'] = 'discrete'
         df['statistic'] = 'INST'
+        df['interval_minutes'] = pd.NA # not applicable for discrete samples
     close_connection(conn)
     return df
     
