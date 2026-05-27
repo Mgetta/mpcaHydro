@@ -384,23 +384,30 @@ def _download(constituent, station_nos, start_year=1996, end_year=2030, wplmn=Fa
         else:
             statistic = 'INST'
         
+        dfs = []
         for ts_id in ts_ids['ts_id'].to_list():
             print(f'Downloading {constituent} data for station {station_nos} (ts_id {ts_id})')
             df = convert_to_df(ts_id,start_year,end_year)
             if df.empty:
-                print(f'No data found for station {station_nos} and constituent {constituent}')
-                return pd.DataFrame()
+                dfs.append(pd.DataFrame())
+                print(f'No data found for station {station_nos} and constituent {constituent} (ts_id {ts_id})')
+                continue
             df['interval_minutes'] = int(_nominal_interval(df.set_index('Timestamp'),['station_no']).iloc[0])
+            dfs.append(df)
+        df = pd.concat(dfs, ignore_index=True)
         
-        df['constituent'] = constituent  
-        df['Date'] = df['Timestamp'].dt.date
-        df['Time'] = pd.NA
-        df['Timezone'] = 'CST'
-        if statistic == 'INST':
-            df['Time'] = df['Timestamp'].dt.time
-        df['statistic'] = statistic
-        df['grain'] = 'continuous'
-
+        if not df.empty:
+            df['constituent'] = constituent  
+            df['Date'] = df['Timestamp'].dt.date
+            df['Time'] = pd.NA
+            df['Timezone'] = 'CST'
+            if statistic == 'INST':
+                df['Time'] = df['Timestamp'].dt.time
+            df['statistic'] = statistic
+            df['grain'] = 'continuous'
+        else:
+            print(f'No data found for station {station_nos} and constituent {constituent}')
+            df = pd.DataFrame()
     else:
         df = pd.DataFrame()
     return df
@@ -608,290 +615,290 @@ def convert_to_df(ts_id, start_year=1996, end_year=2030):
 
 
 
-def convert_units(df):
-    """Convert raw WISKI measurement units to package-standard units.
+# def convert_units(df):
+#     """Convert raw WISKI measurement units to package-standard units.
 
-    The following conversions are applied *in-place*:
+#     The following conversions are applied *in-place*:
 
-    * Celsius (``°c``) → Fahrenheit (``degf``)
-    * Kilograms (``kg``) → Pounds (``lb``)
-    * Cubic-feet-per-second symbol (``ft³/s``) → ``cfs``
+#     * Celsius (``°c``) → Fahrenheit (``degf``)
+#     * Kilograms (``kg``) → Pounds (``lb``)
+#     * Cubic-feet-per-second symbol (``ft³/s``) → ``cfs``
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        DataFrame containing a ``ts_unitsymbol`` column and a ``Value``
-        column.
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         DataFrame containing a ``ts_unitsymbol`` column and a ``Value``
+#         column.
 
-    Returns
-    -------
-    pandas.DataFrame
-        The same DataFrame with updated ``ts_unitsymbol`` and ``Value``
-        columns.
-    """
-    # Convert units
-    #Water temperature``
-    df.loc[:,'ts_unitsymbol'] = df['ts_unitsymbol'].str.lower()
-    df.replace({'ts_unitsymbol':'°c'},'degf',inplace = True)
-    df.loc[df['ts_unitsymbol'] == 'degf','Value'] = df.loc[df['ts_unitsymbol'] == 'degf','Value'].apply(lambda x: (x*9/5)+32)
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         The same DataFrame with updated ``ts_unitsymbol`` and ``Value``
+#         columns.
+#     """
+#     # Convert units
+#     #Water temperature``
+#     df.loc[:,'ts_unitsymbol'] = df['ts_unitsymbol'].str.lower()
+#     df.replace({'ts_unitsymbol':'°c'},'degf',inplace = True)
+#     df.loc[df['ts_unitsymbol'] == 'degf','Value'] = df.loc[df['ts_unitsymbol'] == 'degf','Value'].apply(lambda x: (x*9/5)+32)
 
-    # Convert kg to lb
-    df.loc[df['ts_unitsymbol'] == 'kg','Value'] = df.loc[df['ts_unitsymbol'] == 'kg','Value'].apply(lambda x: (x*2.20462))
-    df.replace({'ts_unitsymbol':'kg'},'lb',inplace=True)
+#     # Convert kg to lb
+#     df.loc[df['ts_unitsymbol'] == 'kg','Value'] = df.loc[df['ts_unitsymbol'] == 'kg','Value'].apply(lambda x: (x*2.20462))
+#     df.replace({'ts_unitsymbol':'kg'},'lb',inplace=True)
 
-    # rename ft3/s to cfs
-    df.replace({'ts_unitsymbol':'ft³/s'},'cfs',inplace=True)
-    return df
+#     # rename ft3/s to cfs
+#     df.replace({'ts_unitsymbol':'ft³/s'},'cfs',inplace=True)
+#     return df
 
 
-def map_constituents(df):
-    """Map ``stationparameter_no`` codes to human-readable constituent names.
+# def map_constituents(df):
+#     """Map ``stationparameter_no`` codes to human-readable constituent names.
 
-    Uses :data:`STATIONPARAMETER_NOS_MAP` to convert prefix-matched
-    parameter numbers (e.g. ``'262*'`` → ``'Q'``).
+#     Uses :data:`STATIONPARAMETER_NOS_MAP` to convert prefix-matched
+#     parameter numbers (e.g. ``'262*'`` → ``'Q'``).
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Must contain a ``stationparameter_no`` column.
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Must contain a ``stationparameter_no`` column.
 
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with an added ``constituent`` column.
-    """
-    def map_values(value):
-        for key, replacement in STATIONPARAMETER_NOS_MAP.items():
-            if value.startswith(key.rstrip('*')):  # Match prefix without the wildcard '*'
-                return replacement
-        return value  # If no match, return the original value
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         DataFrame with an added ``constituent`` column.
+#     """
+#     def map_values(value):
+#         for key, replacement in STATIONPARAMETER_NOS_MAP.items():
+#             if value.startswith(key.rstrip('*')):  # Match prefix without the wildcard '*'
+#                 return replacement
+#         return value  # If no match, return the original value
 
-    df['constituent'] = df['stationparameter_no'].apply(map_values)
-    return df
+#     df['constituent'] = df['stationparameter_no'].apply(map_values)
+#     return df
 
-def normalize_columns(df):
-    """Rename raw WISKI columns to the package-standard schema.
+# def normalize_columns(df):
+#     """Rename raw WISKI columns to the package-standard schema.
 
-    After constituent mapping, the following renames are applied:
+#     After constituent mapping, the following renames are applied:
 
-    * ``station_no`` → ``station_id``
-    * ``Timestamp`` → ``datetime``
-    * ``Value`` → ``value``
-    * ``ts_unitsymbol`` → ``unit``
-    * ``Quality Code`` → ``quality_code``
-    * ``Quality Code Name`` → ``quality_code_name``
+#     * ``station_no`` → ``station_id``
+#     * ``Timestamp`` → ``datetime``
+#     * ``Value`` → ``value``
+#     * ``ts_unitsymbol`` → ``unit``
+#     * ``Quality Code`` → ``quality_code``
+#     * ``Quality Code Name`` → ``quality_code_name``
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Raw WISKI DataFrame.
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Raw WISKI DataFrame.
 
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with standardised column names.
-    """
-    # Map parameter numbers to constituent names
-    #df['constituent'] = df['stationparameter_no'].map(STATIONPARAMETER_NOS_MAP,regex=True)
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         DataFrame with standardised column names.
+#     """
+#     # Map parameter numbers to constituent names
+#     #df['constituent'] = df['stationparameter_no'].map(STATIONPARAMETER_NOS_MAP,regex=True)
     
-    df = map_constituents(df)
+#     df = map_constituents(df)
 
-    df.rename(columns={
-        'station_no':'station_id',
-        'Timestamp':'datetime',
-        'Value':'value',
-        'ts_unitsymbol':'unit',
-        'Quality Code':'quality_code',
-        'Quality Code Name':'quality_code_name'}, inplace=True)
-    return df
+#     df.rename(columns={
+#         'station_no':'station_id',
+#         'Timestamp':'datetime',
+#         'Value':'value',
+#         'ts_unitsymbol':'unit',
+#         'Quality Code':'quality_code',
+#         'Quality Code Name':'quality_code_name'}, inplace=True)
+#     return df
     
 
 
-def filter_quality_codes(df, data_codes):
-    """Keep only rows whose ``quality_code`` is in the accepted set.
+# def filter_quality_codes(df, data_codes):
+#     """Keep only rows whose ``quality_code`` is in the accepted set.
 
-    WISKI assigns numeric quality codes to every measurement.  Only codes
-    listed in :data:`DATA_CODES` (or the caller-supplied list) represent
-    validated observations suitable for analysis.
+#     WISKI assigns numeric quality codes to every measurement.  Only codes
+#     listed in :data:`DATA_CODES` (or the caller-supplied list) represent
+#     validated observations suitable for analysis.
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Normalised WISKI data containing a ``quality_code`` column.
-    data_codes : list of int
-        Acceptable quality-code values.
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Normalised WISKI data containing a ``quality_code`` column.
+#     data_codes : list of int
+#         Acceptable quality-code values.
 
-    Returns
-    -------
-    pandas.DataFrame
-        Filtered subset.
-    """
-    return df.loc[df['quality_code'].isin(data_codes)]
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Filtered subset.
+#     """
+#     return df.loc[df['quality_code'].isin(data_codes)]
 
-def filter_years(df, start_year=1996, end_year=None):
-    """Filter data to include only observations within a year range.
+# def filter_years(df, start_year=1996, end_year=None):
+#     """Filter data to include only observations within a year range.
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Must contain a ``datetime`` column of type ``datetime64``.
-    start_year : int, default 1996
-        Earliest year to keep (inclusive).
-    end_year : int, optional
-        Latest year to keep (inclusive).  If ``None``, no upper bound.
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Must contain a ``datetime`` column of type ``datetime64``.
+#     start_year : int, default 1996
+#         Earliest year to keep (inclusive).
+#     end_year : int, optional
+#         Latest year to keep (inclusive).  If ``None``, no upper bound.
 
-    Returns
-    -------
-    pandas.DataFrame
-        Filtered subset.
-    """
-    df = df[df['datetime'].dt.year >= start_year]
-    if end_year is not None:
-        df = df[df['datetime'].dt.year <= end_year]
-    return df
-
-
-def average_results(df):
-    """Aggregate observations to hourly mean values.
-
-    Timestamps are rounded to the nearest hour, and values are averaged
-    within each ``(station_id, datetime, constituent, unit)`` group.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Normalised WISKI observations.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Hourly-averaged observations.
-    """
-    df.loc[:,'datetime'] = df.loc[:,'datetime'].dt.round('h')
-    return df.groupby(['station_id', 'datetime', 'constituent', 'unit']).agg(value=('value', 'mean')).reset_index()
-    # Convert units
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Filtered subset.
+#     """
+#     df = df[df['datetime'].dt.year >= start_year]
+#     if end_year is not None:
+#         df = df[df['datetime'].dt.year <= end_year]
+#     return df
 
 
-def calculate_baseflow(df, method='Boughton'):
-    """Estimate baseflow from discharge data using a digital-filter method.
+# def average_results(df):
+#     """Aggregate observations to hourly mean values.
 
-    For every unique ``station_id`` with discharge (``Q``) records, this
-    function runs a single-pass baseflow separation (via the ``baseflow``
-    package) and appends the results as a new constituent ``QB`` (baseflow).
+#     Timestamps are rounded to the nearest hour, and values are averaged
+#     within each ``(station_id, datetime, constituent, unit)`` group.
 
-    **Why baseflow?**
-    HSPF calibration requires separate baseflow and stormflow targets.
-    Separating baseflow from total discharge allows downstream model
-    comparisons to evaluate both components independently.
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Normalised WISKI observations.
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Must include rows where ``constituent == 'Q'``.
-    method : str, default ``'Boughton'``
-        Baseflow separation algorithm name passed to
-        :func:`baseflow.single`.
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Hourly-averaged observations.
+#     """
+#     df.loc[:,'datetime'] = df.loc[:,'datetime'].dt.round('h')
+#     return df.groupby(['station_id', 'datetime', 'constituent', 'unit']).agg(value=('value', 'mean')).reset_index()
+#     # Convert units
 
-    Returns
-    -------
-    pandas.DataFrame
-        Original *df* with baseflow rows (``constituent='QB'``)
-        appended.
-    """
-    dfs = [df]
-    for station_id in df['station_id'].unique():
-        df_station = df.query(f'constituent == "Q" & station_id == "{station_id}"')[['datetime', 'value']].copy().set_index('datetime')
-        if df_station.empty | len(df_station) < 10:  # baseflow separation requires a minimum number of observations
-            continue
-        else:
-            df_baseflow = bf.single(df_station['value'], area = None, method = method,return_kge = False)[0][method]
+
+# def calculate_baseflow(df, method='Boughton'):
+#     """Estimate baseflow from discharge data using a digital-filter method.
+
+#     For every unique ``station_id`` with discharge (``Q``) records, this
+#     function runs a single-pass baseflow separation (via the ``baseflow``
+#     package) and appends the results as a new constituent ``QB`` (baseflow).
+
+#     **Why baseflow?**
+#     HSPF calibration requires separate baseflow and stormflow targets.
+#     Separating baseflow from total discharge allows downstream model
+#     comparisons to evaluate both components independently.
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Must include rows where ``constituent == 'Q'``.
+#     method : str, default ``'Boughton'``
+#         Baseflow separation algorithm name passed to
+#         :func:`baseflow.single`.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Original *df* with baseflow rows (``constituent='QB'``)
+#         appended.
+#     """
+#     dfs = [df]
+#     for station_id in df['station_id'].unique():
+#         df_station = df.query(f'constituent == "Q" & station_id == "{station_id}"')[['datetime', 'value']].copy().set_index('datetime')
+#         if df_station.empty | len(df_station) < 10:  # baseflow separation requires a minimum number of observations
+#             continue
+#         else:
+#             df_baseflow = bf.single(df_station['value'], area = None, method = method,return_kge = False)[0][method]
             
-            df_baseflow = pd.DataFrame(
-                {
-                    "station_id": station_id,
-                    "station_origin": 'wiski',
-                    "datetime": df_baseflow.index,
-                    "value": df_baseflow.values,
-                    "constituent": 'QB',
-                    "unit": 'cfs',
-                }
-            )
-            dfs.append(df_baseflow)
+#             df_baseflow = pd.DataFrame(
+#                 {
+#                     "station_id": station_id,
+#                     "station_origin": 'wiski',
+#                     "datetime": df_baseflow.index,
+#                     "value": df_baseflow.values,
+#                     "constituent": 'QB',
+#                     "unit": 'cfs',
+#                 }
+#             )
+#             dfs.append(df_baseflow)
     
-    return pd.concat(dfs)
+#     return pd.concat(dfs)
 
 
-def normalize(df):
-    """Standardise raw WISKI data without analytical transformations.
+# def normalize(df):
+#     """Standardise raw WISKI data without analytical transformations.
 
-    Applies unit conversion (:func:`convert_units`) and column renaming
-    (:func:`normalize_columns`).  No quality-code filtering, averaging,
-    or baseflow separation is performed — use :func:`transform` for the
-    full pipeline.
+#     Applies unit conversion (:func:`convert_units`) and column renaming
+#     (:func:`normalize_columns`).  No quality-code filtering, averaging,
+#     or baseflow separation is performed — use :func:`transform` for the
+#     full pipeline.
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Raw WISKI data as returned by :func:`download`.
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Raw WISKI data as returned by :func:`download`.
 
-    Returns
-    -------
-    pandas.DataFrame
-        Normalised WISKI data with standardised column names and units.
-    """
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Normalised WISKI data with standardised column names and units.
+#     """
 
-    df = convert_units(df)
-    df = normalize_columns(df)
-    return df
+#     df = convert_units(df)
+#     df = normalize_columns(df)
+#     return df
 
-def transform(df, filter_qc_codes=True, data_codes=None, baseflow_method='Boughton', include_baseflow = True):
-    """Full ETL pipeline: normalise → filter → average → baseflow.
+# def transform(df, filter_qc_codes=True, data_codes=None, baseflow_method='Boughton', include_baseflow = True):
+#     """Full ETL pipeline: normalise → filter → average → baseflow.
 
-    This is the recommended entry point for preparing WISKI data for
-    loading into the analytics layer of the data warehouse.
+#     This is the recommended entry point for preparing WISKI data for
+#     loading into the analytics layer of the data warehouse.
 
-    Steps performed in order:
+#     Steps performed in order:
 
-    1. :func:`normalize` — unit conversion and column renaming.
-    2. :func:`filter_quality_codes` — keep only validated observations
-       (optional, controlled by *filter_qc_codes*).
-    3. :func:`average_results` — round to hourly timestamps and average.
-    4. :func:`filter_years` — remove records before 1996.
-    5. :func:`calculate_baseflow` — derive baseflow (``QB``) from
-       discharge.
-    6. Tag ``station_origin`` as ``'wiski'``.
+#     1. :func:`normalize` — unit conversion and column renaming.
+#     2. :func:`filter_quality_codes` — keep only validated observations
+#        (optional, controlled by *filter_qc_codes*).
+#     3. :func:`average_results` — round to hourly timestamps and average.
+#     4. :func:`filter_years` — remove records before 1996.
+#     5. :func:`calculate_baseflow` — derive baseflow (``QB``) from
+#        discharge.
+#     6. Tag ``station_origin`` as ``'wiski'``.
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Raw WISKI data as returned by :func:`download`.
-    filter_qc_codes : bool, default True
-        Whether to apply quality-code filtering.
-    data_codes : list of int, optional
-        Custom quality-code whitelist.  Defaults to :data:`DATA_CODES`.
-    baseflow_method : str, default ``'Boughton'``
-        Algorithm name for baseflow separation.
-    include_baseflow : bool, default True
-        Whether to include baseflow (``QB``) in the output.
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Raw WISKI data as returned by :func:`download`.
+#     filter_qc_codes : bool, default True
+#         Whether to apply quality-code filtering.
+#     data_codes : list of int, optional
+#         Custom quality-code whitelist.  Defaults to :data:`DATA_CODES`.
+#     baseflow_method : str, default ``'Boughton'``
+#         Algorithm name for baseflow separation.
+#     include_baseflow : bool, default True
+#         Whether to include baseflow (``QB``) in the output.
 
-    Returns
-    -------
-    pandas.DataFrame
-        Analysis-ready hourly observations including baseflow, tagged
-        with ``station_origin='wiski'``.
-    """
-    df = normalize(df)
-    if filter_qc_codes:
-        if data_codes is None:
-            data_codes = DATA_CODES
-        df = filter_quality_codes(df, data_codes)
-    df = average_results(df)
-    df = filter_years(df, start_year=1996)
-    if include_baseflow:
-        df = calculate_baseflow(df, method = baseflow_method)
-    df['station_origin'] = 'wiski'
-    #df.set_index('datetime',inplace=True)
-    return df
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Analysis-ready hourly observations including baseflow, tagged
+#         with ``station_origin='wiski'``.
+#     """
+#     df = normalize(df)
+#     if filter_qc_codes:
+#         if data_codes is None:
+#             data_codes = DATA_CODES
+#         df = filter_quality_codes(df, data_codes)
+#     df = average_results(df)
+#     df = filter_years(df, start_year=1996)
+#     if include_baseflow:
+#         df = calculate_baseflow(df, method = baseflow_method)
+#     df['station_origin'] = 'wiski'
+#     #df.set_index('datetime',inplace=True)
+#     return df
 
 
 

@@ -388,547 +388,360 @@ SELECT
     
 
 
-def as_utc_offset(naive_dt: Union[datetime, str], tz_label: str, target_offset: timezone) -> datetime:
-    """Convert a naïve datetime to a fixed UTC offset using a timezone label.
-
-    EQuIS stores timestamps as naïve datetime values alongside a separate
-    timezone label column (``SAMPLE_DATE_TIMEZONE``).  This function
-    re-interprets the naïve value in the declared source timezone and then
-    converts it to the *target_offset* (typically UTC-6 for Central
-    Standard Time).
-
-    The conversion rule:
-
-    * ``'CST'`` → interpret as UTC-6
-    * ``'CDT'`` → interpret as UTC-5
-    * ``'UTC'`` → interpret as UTC
-
-    .. warning::
-
-       Uses ``datetime.replace(tzinfo=...)`` which **assumes** the input is
-       truly naïve.  If *naive_dt* already carries ``tzinfo`` the result
-       will be incorrect.
-
-    Parameters
-    ----------
-    naive_dt : datetime or str
-        Naïve timestamp (no timezone info) or an ISO-format string.
-    tz_label : str
-        Timezone abbreviation from EQuIS (``'CST'``, ``'CDT'``, or
-        ``'UTC'``).
-    target_offset : datetime.timezone
-        Fixed offset to convert into (e.g. ``timezone(timedelta(hours=-6))``).
-
-    Returns
-    -------
-    datetime
-        Timezone-aware datetime expressed in *target_offset*, then
-        localised (tz stripped).
-
-    Raises
-    ------
-    TypeError
-        If *naive_dt* is neither a ``datetime`` nor a ``str``.
-    ValueError
-        If *tz_label* is not one of ``CST``, ``CDT``, ``UTC``.
-    """
-    if isinstance(naive_dt, str):
-        naive = pd.to_datetime(naive_dt).to_pydatetime()
-    elif isinstance(naive_dt, datetime):
-        naive = naive_dt
-    else:
-        raise TypeError("naive_dt must be datetime or str")
-
-    label = (tz_label or "").strip().upper()
-
-    if label == "CST":
-        src_tz = timezone(timedelta(hours=-6))
-    elif label == "CDT":
-        src_tz = timezone(timedelta(hours=-5))
-    elif label == 'UTC':
-        src_tz = timezone.utc
-    else:
-        raise ValueError(f"Unexpected timezone label: {tz_label}")
-    # attach the source tz (interpret naive as local time in src_tz)
-    aware_src = naive.replace(tzinfo=src_tz)
-
-    # convert the instant to fixed UTC-6
-    return aware_src.astimezone(target_offset).tz_localize(None)
-
-
-
-def normalize_timezone(df):
-    """Convert naive datetimes + timezone labels to a single target timezone.
-
-    Unknown timezone labels produce NaT and are logged as warnings
-    so they can be investigated without crashing the pipeline.
-    """
-    dt = pd.to_datetime(df['SAMPLE_DATE_TIME'])
-
-    tz_label = df['SAMPLE_DATE_TIMEZONE'].str.strip().str.upper()
-    offset_hours = tz_label.map(_TZ_OFFSET_HOURS)
-
-    # # Log unknown labels — don't crash, just warn
-    unmapped = offset_hours.isna() & tz_label.notna()
-    if unmapped.any():
-        print(f"Warning: {unmapped.sum()} rows have unknown timezone labels: {tz_label[unmapped].unique().tolist()}. These will be set to NaT.")
-    #     bad_labels = tz_label[unmapped].unique().tolist()
-    #     n_bad = unmapped.sum()
-    #     logger.warning(
-    #         f"{n_bad} rows have unknown timezone labels: {bad_labels}. "
-    #         f"These will be set to NaT."
-    #     )
-
-    # Convert to UTC, then to target — unmapped rows stay NaT naturally
-    utc_dt = dt - pd.to_timedelta(offset_hours, unit='h')
-
-    df = df.copy()
-    df['datetime'] = (
-        utc_dt
-        .dt.tz_localize('UTC')
-        .dt.tz_convert(_TARGET_TZ)
-        .dt.tz_localize(None)
-    )
-
-    return df
-
-
-def normalize_columns(df):
-    """Select and rename relevant columns from raw EQuIS data.
-
-    Retains only the columns needed for downstream analysis and renames
-    them to the package-standard schema:
-
-    * ``SYS_LOC_CODE`` → ``station_id``
-    * ``RESULT_NUMERIC`` → ``value``
-    * ``RESULT_UNIT`` → ``unit``
-    * ``CAS_RN`` → ``cas_rn``
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        EQuIS data with constituent mapping already applied.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Slimmed DataFrame with standardised column names.
-    """
-    return df[['SYS_LOC_CODE',
-               'constituent',
-               'CAS_RN',
-               'datetime',
-               'RESULT_NUMERIC',
-               'RESULT_UNIT',
-               ]].rename(columns={
-                   'SYS_LOC_CODE':'station_id',
-                   'RESULT_NUMERIC':'value',
-                   'RESULT_UNIT':'unit',
-                   'CAS_RN':'cas_rn'
-               })
-
-
-
-def normalize_timezone_legacy(df):
-    """Convert EQuIS sample timestamps to a fixed UTC-6 offset.
-
-    Iterates over every row, reading ``SAMPLE_DATE_TIME`` and
-    ``SAMPLE_DATE_TIMEZONE``, and applies :func:`as_utc_offset`.  Rows
-    whose timezone cannot be determined are set to ``NaT``.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Raw or partially-normalised EQuIS data.
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with a new ``datetime`` column in UTC-6.
-    """
-    target_offset = timezone(timedelta(hours=-6))
-    def _conv(row):
-        try:
-            return as_utc_offset(row['SAMPLE_DATE_TIME'], row['SAMPLE_DATE_TIMEZONE'],target_offset)
-        except Exception:
-            return pd.NaT
-
-    df.loc[:,'datetime'] = df.apply(_conv, axis=1)
-    return df
-
-def convert_units(df):
-    """Convert EQuIS measurement units to package-standard units.
-
-    The following conversions are applied *in-place*:
-
-    * Micrograms per litre (``ug/l``) → milligrams per litre (``mg/l``)
-    * Milligrams per gram (``mg/g``) → milligrams per litre (``mg/l``)
-      (assumes density of 1 g/mL)
-    * Degrees Celsius (``deg c``, ``degc``) → Fahrenheit (``degf``)
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        DataFrame with ``unit`` and ``value`` columns.
-
-    Returns
-    -------
-    pandas.DataFrame
-        The same DataFrame with converted values and normalised unit
-        strings.
-    """
-    # Convert ug/L to mg/L
-    df['unit'] = df['unit'].str.lower()
-
-    mask_ugL = df['unit'] == 'ug/l'
-    df.loc[mask_ugL, 'value'] = df.loc[mask_ugL, 'value'] / 1000
-    df.loc[mask_ugL, 'unit'] = 'mg/l'
-
-    # Convert mg/g to mg/L (assuming density of 1 g/mL)
-    mask_mgg = df['unit'] == 'mg/g'
-    df.loc[mask_mgg, 'value'] = df.loc[mask_mgg, 'value'] * 1000
-    df.loc[mask_mgg, 'unit'] = 'mg/l'
-
-    # Convert deg C to degF
-    mask_degC = df['unit'].isin(['deg c', 'degc'])
-    df.loc[mask_degC, 'value'] = (df.loc[mask_degC, 'value'] * 9/5) + 32
-    df.loc[mask_degC, 'unit'] = 'degf'
-
-    return df
-
-def map_constituents(df):
-    """Map CAS registry numbers to standard constituent abbreviations.
-
-    Uses :data:`CAS_RN_MAP` to translate the ``CAS_RN`` column into a
-    new ``constituent`` column (e.g. ``'7723-14-0'`` → ``'TP'``).
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Raw EQuIS data containing a ``CAS_RN`` column.
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with an added ``constituent`` column.
-    """
-    df['constituent'] = df['CAS_RN'].map(CAS_RN_MAP)
-    return df
-
-
-def average_results(df):
-    """Aggregate EQuIS samples to hourly means per station and constituent.
-
-    Timestamps are rounded to the nearest hour.  Results are grouped by
-    ``(station_id, datetime, constituent, unit, station_origin)`` and the
-    mean value is computed.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Normalised EQuIS observations.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Hourly-averaged observations tagged with
-        ``station_origin='equis'``.
-    """
-    df['datetime'] = df['datetime'].dt.round('h')
-    df['station_origin'] = 'equis'
-    return df.groupby(['station_id', 'datetime', 'constituent', 'unit','station_origin']).agg(
-        value=('value', 'mean')
-    ).reset_index()
-
-def replace_nondetects(df):
-    """Replace non-detect (``NaN``) result values with zero.
-
-    In EQuIS, a ``NaN`` in ``RESULT_NUMERIC`` typically indicates that
-    the analyte was below the detection limit.  For HSPF calibration
-    purposes these are treated as zero.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Normalised EQuIS data.
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with ``NaN`` values in the ``value`` column replaced
-        by ``0``.
-    """
-    df.loc[df['value'].isna(), 'value'] = 0
-    return df
-
-def filter_years(df, start_year=1996, end_year=None):
-    """Filter EQuIS data to a specified year range.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Must contain a ``datetime`` column of type ``datetime64``.
-    start_year : int, default 1996
-        Earliest year to keep (inclusive).
-    end_year : int, optional
-        Latest year to keep (inclusive).  ``None`` means no upper bound.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Filtered subset.
-    """
-    df = df[df['datetime'].dt.year >= start_year]
-    if end_year is not None:
-        df = df[df['datetime'].dt.year <= end_year]
-    return df
-
-def normalize(df):
-    """Apply normalisation steps to raw EQuIS data (no analytical transforms).
-
-    Runs, in order:
-
-    1. :func:`map_constituents` — CAS_RN → constituent
-    2. :func:`normalize_timezone` — timestamp to UTC-6
-    3. :func:`normalize_columns` — select and rename columns
-    4. :func:`convert_units` — standardise units
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Raw EQuIS data as returned by :func:`download`.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Normalised EQuIS data.
-    """
-    df = map_constituents(df)
-    df = normalize_timezone(df)
-    df = normalize_columns(df)
-    df = convert_units(df)
-    return df
-
-def transform(df):
-    """Full ETL pipeline: normalise → replace non-detects → filter → average.
-
-    This is the recommended entry point for preparing EQuIS data for
-    loading into the analytics layer of the data warehouse.
-
-    Steps performed in order:
-
-    1. :func:`normalize` — map constituents, fix timezones, rename
-       columns, convert units.
-    2. :func:`replace_nondetects` — set ``NaN`` values to ``0``.
-    3. :func:`filter_years` — remove records before 1996.
-    4. :func:`average_results` — round to hourly timestamps and average.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Raw EQuIS data as returned by :func:`download`.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Analysis-ready hourly observations tagged with
-        ``station_origin='equis'``.
-    """
+# def as_utc_offset(naive_dt: Union[datetime, str], tz_label: str, target_offset: timezone) -> datetime:
+#     """Convert a naïve datetime to a fixed UTC offset using a timezone label.
+
+#     EQuIS stores timestamps as naïve datetime values alongside a separate
+#     timezone label column (``SAMPLE_DATE_TIMEZONE``).  This function
+#     re-interprets the naïve value in the declared source timezone and then
+#     converts it to the *target_offset* (typically UTC-6 for Central
+#     Standard Time).
+
+#     The conversion rule:
+
+#     * ``'CST'`` → interpret as UTC-6
+#     * ``'CDT'`` → interpret as UTC-5
+#     * ``'UTC'`` → interpret as UTC
+
+#     .. warning::
+
+#        Uses ``datetime.replace(tzinfo=...)`` which **assumes** the input is
+#        truly naïve.  If *naive_dt* already carries ``tzinfo`` the result
+#        will be incorrect.
+
+#     Parameters
+#     ----------
+#     naive_dt : datetime or str
+#         Naïve timestamp (no timezone info) or an ISO-format string.
+#     tz_label : str
+#         Timezone abbreviation from EQuIS (``'CST'``, ``'CDT'``, or
+#         ``'UTC'``).
+#     target_offset : datetime.timezone
+#         Fixed offset to convert into (e.g. ``timezone(timedelta(hours=-6))``).
+
+#     Returns
+#     -------
+#     datetime
+#         Timezone-aware datetime expressed in *target_offset*, then
+#         localised (tz stripped).
+
+#     Raises
+#     ------
+#     TypeError
+#         If *naive_dt* is neither a ``datetime`` nor a ``str``.
+#     ValueError
+#         If *tz_label* is not one of ``CST``, ``CDT``, ``UTC``.
+#     """
+#     if isinstance(naive_dt, str):
+#         naive = pd.to_datetime(naive_dt).to_pydatetime()
+#     elif isinstance(naive_dt, datetime):
+#         naive = naive_dt
+#     else:
+#         raise TypeError("naive_dt must be datetime or str")
+
+#     label = (tz_label or "").strip().upper()
+
+#     if label == "CST":
+#         src_tz = timezone(timedelta(hours=-6))
+#     elif label == "CDT":
+#         src_tz = timezone(timedelta(hours=-5))
+#     elif label == 'UTC':
+#         src_tz = timezone.utc
+#     else:
+#         raise ValueError(f"Unexpected timezone label: {tz_label}")
+#     # attach the source tz (interpret naive as local time in src_tz)
+#     aware_src = naive.replace(tzinfo=src_tz)
+
+#     # convert the instant to fixed UTC-6
+#     return aware_src.astimezone(target_offset).tz_localize(None)
+
+
+
+# def normalize_timezone(df):
+#     """Convert naive datetimes + timezone labels to a single target timezone.
+
+#     Unknown timezone labels produce NaT and are logged as warnings
+#     so they can be investigated without crashing the pipeline.
+#     """
+#     dt = pd.to_datetime(df['SAMPLE_DATE_TIME'])
+
+#     tz_label = df['SAMPLE_DATE_TIMEZONE'].str.strip().str.upper()
+#     offset_hours = tz_label.map(_TZ_OFFSET_HOURS)
+
+#     # # Log unknown labels — don't crash, just warn
+#     unmapped = offset_hours.isna() & tz_label.notna()
+#     if unmapped.any():
+#         print(f"Warning: {unmapped.sum()} rows have unknown timezone labels: {tz_label[unmapped].unique().tolist()}. These will be set to NaT.")
+#     #     bad_labels = tz_label[unmapped].unique().tolist()
+#     #     n_bad = unmapped.sum()
+#     #     logger.warning(
+#     #         f"{n_bad} rows have unknown timezone labels: {bad_labels}. "
+#     #         f"These will be set to NaT."
+#     #     )
+
+#     # Convert to UTC, then to target — unmapped rows stay NaT naturally
+#     utc_dt = dt - pd.to_timedelta(offset_hours, unit='h')
+
+#     df = df.copy()
+#     df['datetime'] = (
+#         utc_dt
+#         .dt.tz_localize('UTC')
+#         .dt.tz_convert(_TARGET_TZ)
+#         .dt.tz_localize(None)
+#     )
+
+#     return df
+
+
+# def normalize_columns(df):
+#     """Select and rename relevant columns from raw EQuIS data.
+
+#     Retains only the columns needed for downstream analysis and renames
+#     them to the package-standard schema:
+
+#     * ``SYS_LOC_CODE`` → ``station_id``
+#     * ``RESULT_NUMERIC`` → ``value``
+#     * ``RESULT_UNIT`` → ``unit``
+#     * ``CAS_RN`` → ``cas_rn``
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         EQuIS data with constituent mapping already applied.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Slimmed DataFrame with standardised column names.
+#     """
+#     return df[['SYS_LOC_CODE',
+#                'constituent',
+#                'CAS_RN',
+#                'datetime',
+#                'RESULT_NUMERIC',
+#                'RESULT_UNIT',
+#                ]].rename(columns={
+#                    'SYS_LOC_CODE':'station_id',
+#                    'RESULT_NUMERIC':'value',
+#                    'RESULT_UNIT':'unit',
+#                    'CAS_RN':'cas_rn'
+#                })
+
+
+
+# def normalize_timezone_legacy(df):
+#     """Convert EQuIS sample timestamps to a fixed UTC-6 offset.
+
+#     Iterates over every row, reading ``SAMPLE_DATE_TIME`` and
+#     ``SAMPLE_DATE_TIMEZONE``, and applies :func:`as_utc_offset`.  Rows
+#     whose timezone cannot be determined are set to ``NaT``.
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Raw or partially-normalised EQuIS data.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         DataFrame with a new ``datetime`` column in UTC-6.
+#     """
+#     target_offset = timezone(timedelta(hours=-6))
+#     def _conv(row):
+#         try:
+#             return as_utc_offset(row['SAMPLE_DATE_TIME'], row['SAMPLE_DATE_TIMEZONE'],target_offset)
+#         except Exception:
+#             return pd.NaT
+
+#     df.loc[:,'datetime'] = df.apply(_conv, axis=1)
+#     return df
+
+# def convert_units(df):
+#     """Convert EQuIS measurement units to package-standard units.
+
+#     The following conversions are applied *in-place*:
+
+#     * Micrograms per litre (``ug/l``) → milligrams per litre (``mg/l``)
+#     * Milligrams per gram (``mg/g``) → milligrams per litre (``mg/l``)
+#       (assumes density of 1 g/mL)
+#     * Degrees Celsius (``deg c``, ``degc``) → Fahrenheit (``degf``)
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         DataFrame with ``unit`` and ``value`` columns.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         The same DataFrame with converted values and normalised unit
+#         strings.
+#     """
+#     # Convert ug/L to mg/L
+#     df['unit'] = df['unit'].str.lower()
+
+#     mask_ugL = df['unit'] == 'ug/l'
+#     df.loc[mask_ugL, 'value'] = df.loc[mask_ugL, 'value'] / 1000
+#     df.loc[mask_ugL, 'unit'] = 'mg/l'
+
+#     # Convert mg/g to mg/L (assuming density of 1 g/mL)
+#     mask_mgg = df['unit'] == 'mg/g'
+#     df.loc[mask_mgg, 'value'] = df.loc[mask_mgg, 'value'] * 1000
+#     df.loc[mask_mgg, 'unit'] = 'mg/l'
+
+#     # Convert deg C to degF
+#     mask_degC = df['unit'].isin(['deg c', 'degc'])
+#     df.loc[mask_degC, 'value'] = (df.loc[mask_degC, 'value'] * 9/5) + 32
+#     df.loc[mask_degC, 'unit'] = 'degf'
+
+#     return df
+
+# def map_constituents(df):
+#     """Map CAS registry numbers to standard constituent abbreviations.
+
+#     Uses :data:`CAS_RN_MAP` to translate the ``CAS_RN`` column into a
+#     new ``constituent`` column (e.g. ``'7723-14-0'`` → ``'TP'``).
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Raw EQuIS data containing a ``CAS_RN`` column.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         DataFrame with an added ``constituent`` column.
+#     """
+#     df['constituent'] = df['CAS_RN'].map(CAS_RN_MAP)
+#     return df
+
+
+# def average_results(df):
+#     """Aggregate EQuIS samples to hourly means per station and constituent.
+
+#     Timestamps are rounded to the nearest hour.  Results are grouped by
+#     ``(station_id, datetime, constituent, unit, station_origin)`` and the
+#     mean value is computed.
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Normalised EQuIS observations.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Hourly-averaged observations tagged with
+#         ``station_origin='equis'``.
+#     """
+#     df['datetime'] = df['datetime'].dt.round('h')
+#     df['station_origin'] = 'equis'
+#     return df.groupby(['station_id', 'datetime', 'constituent', 'unit','station_origin']).agg(
+#         value=('value', 'mean')
+#     ).reset_index()
+
+# def replace_nondetects(df):
+#     """Replace non-detect (``NaN``) result values with zero.
+
+#     In EQuIS, a ``NaN`` in ``RESULT_NUMERIC`` typically indicates that
+#     the analyte was below the detection limit.  For HSPF calibration
+#     purposes these are treated as zero.
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Normalised EQuIS data.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         DataFrame with ``NaN`` values in the ``value`` column replaced
+#         by ``0``.
+#     """
+#     df.loc[df['value'].isna(), 'value'] = 0
+#     return df
+
+# def filter_years(df, start_year=1996, end_year=None):
+#     """Filter EQuIS data to a specified year range.
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Must contain a ``datetime`` column of type ``datetime64``.
+#     start_year : int, default 1996
+#         Earliest year to keep (inclusive).
+#     end_year : int, optional
+#         Latest year to keep (inclusive).  ``None`` means no upper bound.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Filtered subset.
+#     """
+#     df = df[df['datetime'].dt.year >= start_year]
+#     if end_year is not None:
+#         df = df[df['datetime'].dt.year <= end_year]
+#     return df
+
+# def normalize(df):
+#     """Apply normalisation steps to raw EQuIS data (no analytical transforms).
+
+#     Runs, in order:
+
+#     1. :func:`map_constituents` — CAS_RN → constituent
+#     2. :func:`normalize_timezone` — timestamp to UTC-6
+#     3. :func:`normalize_columns` — select and rename columns
+#     4. :func:`convert_units` — standardise units
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Raw EQuIS data as returned by :func:`download`.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Normalised EQuIS data.
+#     """
+#     df = map_constituents(df)
+#     df = normalize_timezone(df)
+#     df = normalize_columns(df)
+#     df = convert_units(df)
+#     return df
+
+# def transform(df):
+#     """Full ETL pipeline: normalise → replace non-detects → filter → average.
+
+#     This is the recommended entry point for preparing EQuIS data for
+#     loading into the analytics layer of the data warehouse.
+
+#     Steps performed in order:
+
+#     1. :func:`normalize` — map constituents, fix timezones, rename
+#        columns, convert units.
+#     2. :func:`replace_nondetects` — set ``NaN`` values to ``0``.
+#     3. :func:`filter_years` — remove records before 1996.
+#     4. :func:`average_results` — round to hourly timestamps and average.
+
+#     Parameters
+#     ----------
+#     df : pandas.DataFrame
+#         Raw EQuIS data as returned by :func:`download`.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         Analysis-ready hourly observations tagged with
+#         ``station_origin='equis'``.
+#     """
     
-    df = normalize(df)
-    df = replace_nondetects(df)
-    df = filter_years(df)
-    if not df.empty:
-        df = average_results(df)
-    return df
+#     df = normalize(df)
+#     df = replace_nondetects(df)
+#     df = filter_years(df)
+#     if not df.empty:
+#         df = average_results(df)
+#     return df
 
-
-
-#%% Transformations using duckdb instead of pandas
-# def transform_staging_to_hourly_cte(con: duckdb.DuckDBPyConnection,
-#                                     source_table: str,
-#                                     analytics_table: str):
-#     """
-#     Single-statement transformation using chained CTEs.
-#     - Good when you want the whole logical pipeline in one place and avoid intermediate objects.
-#     - Produces analytics.<analytics_table> as the final materialized table.
-#     """
-
-#     mapping_cases = " ".join([f"WHEN '{k}' THEN '{v}'" for k, v in CAS_RN_MAP.items()])
-#     target_offset_hours = -6
-#     # Example assumes source_table has: station_id, datetime, value (numeric), constituent, unit, station_origin
-#     sql = f"""
-#     CREATE OR REPLACE TABLE {analytics_table} AS
-#     WITH
-#         -- Step 1: normalize column names
-#         normalized AS (
-#             SELECT *,
-#                 SYS_LOC_CODE AS station_id,
-#                 SAMPLE_DATE_TIME AS datetime,
-#                 SAMPLE_DATE_TIMEZONE AS datetime_timezone,
-#                 RESULT_NUMERIC AS value,
-#                 RESULT_UNIT AS unit
-#             FROM {source_table}),
-
-#         -- map constituents
-#         constituents AS (
-#         SELECT
-#             *,
-#             CASE CAS_RN
-#                 {mapping_cases}
-#                 ELSE NULL
-#             END AS constituent
-#         FROM normalized),
-
-#         -- Step 2: convert units
-#         conversions AS (
-#         SELECT *,
-#             CASE 
-#                 WHEN LOWER(unit) = 'ug/l' THEN value / 1000
-#                 WHEN LOWER(unit) = 'mg/g' THEN value * 1000
-#                 WHEN LOWER(unit) IN ('deg c', 'degc') THEN (value * 9/5) + 32
-#                 ELSE value
-#             END AS value,
-#             CASE 
-#                 WHEN LOWER(unit) = 'ug/l' THEN 'mg/L'
-#                 WHEN LOWER(unit) = 'mg/g' THEN 'mg/L'
-#                 WHEN LOWER(unit) IN ('deg c', 'degc') THEN 'degF'
-#                 ELSE unit
-#             END AS unit
-#         FROM constituents),
-
-#         -- normalize timezone
-#         timezones AS (
-#             SELECT *,
-#                 CASE
-#                     WHEN datetime_timezone = 'CST' THEN 
-#                         (datetime AT TIME ZONE INTERVAL '-6 hours') AT TIME ZONE INTERVAL '{target_offset_hours} hours'
-#                     WHEN datetime_timezone = 'CDT' THEN 
-#                         (datetime AT TIME ZONE INTERVAL '-5 hours') AT TIME ZONE INTERVAL '{target_offset_hours} hours'
-#                     ELSE 
-#                         datetime AT TIME ZONE INTERVAL '{target_offset_hours} hours'
-#                 END AS datetime
-#             FROM conversions),
-
-        
-#         hourly AS (
-#                 SELECT 
-#                     station_id,
-#                     DATE_TRUNC('hour', datetime + INTERVAL '30 minute') AS datetime,
-#                     constituent,
-#                     unit,
-#                     'equis' AS station_origin,
-#                     AVG(value) AS value
-#                 FROM timezone
-#                 GROUP BY station_id, datetime, constituent, unit
-#                 )
-
-#     SELECT * FROM hourly
-#     """
-#     con.execute(sql)
-#     return 0
-
-
-
-
-
-# #%%
-
-# def normalize_columns(con: duckdb.DuckDBPyConnection, table_name: str):
-#     '''
-#     Select relevant columns from Equis data using DuckDB.
-#     '''
-#     con.execute(f"""
-#         CREATE TEMP VIEW v_normalized AS
-#         SELECT *,
-#             SYS_LOC_CODE AS station_id,
-#             SAMPLE_DATE_TIME AS datetime,
-#             SAMPLE_DATE_TIMEZONE AS datetime_timezone,
-#             RESULT_NUMERIC AS value,
-#             RESULT_UNIT AS unit
-#         FROM {table_name} e
-#     """)
-
-
-# def map_constituents_duckdb(con: duckdb.DuckDBPyConnection, table_name: str):
-#     '''
-#     Map CAS_RN to standard constituent names in Equis data using DuckDB.
-#     '''
-    
-#     mapping_cases = " ".join([f"WHEN '{k}' THEN '{v}'" for k, v in CAS_RN_MAP.items()])
-#     con.execute(f"""
-#         CREATE TEMP VIEW v_constituents AS
-#         SELECT
-#             *,
-#             CASE CAS_RN
-#                 {mapping_cases}
-#                 ELSE NULL
-#             END AS constituent
-#         FROM v_normalized
-#     """)
-
-# def convert_units_duckdb(con: duckdb.DuckDBPyConnection, table_name: str):
-#     '''
-#     Convert units in Equis data to standard units using DuckDB.
-#     '''
-
-#     mapping_cases = " ".join([f"WHEN '{k}' THEN '{v}'" for k, v in CAS_RN_MAP.items()])
-#     target_offset = timedelta(hours=-6)
-
-
-#     con.execute(f"""
-#         CREATE TEMP VIEW v_conversions AS
-#         SELECT
-#             *,
-
-
-#             CASE 
-#                 WHEN LOWER(unit) = 'ug/l' THEN value / 1000
-#                 WHEN LOWER(unit) = 'mg/g' THEN value * 1000
-#                 WHEN LOWER(unit) IN ('deg c', 'degc') THEN (value * 9/5) + 32
-#                 ELSE value
-#             END AS value,
-#             CASE 
-#                 WHEN LOWER(unit) = 'ug/l' THEN 'mg/L'
-#                 WHEN LOWER(unit) = 'mg/g' THEN 'mg/L'
-#                 WHEN LOWER(unit) IN ('deg c', 'degc') THEN 'degF'
-#                 ELSE unit
-#             END AS unit
-#         FROM v_constituents""")
-
-
-# def normalize_timezone(con: duckdb.DuckDBPyConnection, source_table: str, target_offset_hours: int = -6):
-
-#     con.execute(f"""
-#         CREATE TEMP VIEW v_timezone AS
-#             SELECT *,
-#                 CASE
-#                     WHEN SAMPLE_DATE_TIMEZONE = 'CST' THEN 
-#                         (SAMPLE_DATE_TIME AT TIME ZONE INTERVAL '-6 hours') AT TIME ZONE INTERVAL '{target_offset_hours} hours'
-#                     WHEN SAMPLE_DATE_TIMEZONE = 'CDT' THEN 
-#                         (SAMPLE_DATE_TIME AT TIME ZONE INTERVAL '-5 hours') AT TIME ZONE INTERVAL '{target_offset_hours} hours'
-#                     ELSE 
-#                         SAMPLE_DATE_TIME AT TIME ZONE INTERVAL '{target_offset_hours} hours'
-#                 END AS datetime
-#             FROM {source_table}""")
-
-
-# def average_results(con: duckdb.DuckDBPyConnection, table_name: str):
-#     '''
-#     Average samples by hour, station, and constituent using DuckDB.
-#     '''
-#     con.execute(f"""
-#         CREATE TABLE analytics.equis v_averaged AS
-#         SELECT 
-#             station_id,
-#             DATE_TRUNC('hour', datetime) AS datetime,
-#             constituent,
-#             unit,
-#             'equis' AS station_origin,
-#             AVG(value) AS value
-#         FROM v_timezone
-#         GROUP BY station_id, DATE_TRUNC('hour', datetime), constituent, unit
-#     """ )
 
 def fetch_station_locations(connection: Optional[oracledb.Connection] = None):
     """Fetch geographic coordinates for all river/stream stations with HSPF-relevant data.
