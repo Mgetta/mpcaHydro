@@ -1,7 +1,7 @@
 import duckdb
 from pathlib import Path
 from typing import Union
-from mpcaHydro.wh import queries
+from mpcaHydro.warehouse import queries
 
 
 def export_station_to_csv(
