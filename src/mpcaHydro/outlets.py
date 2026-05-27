@@ -59,7 +59,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import duckdb
-from mpcaHydro.sql_loader import get_outlets_schema_sql
+from mpcaHydro.warehouse.sql_loader import get_outlets_schema_sql
 #from hspf_tools.calibrator import etlWISKI, etlSWD
 
 

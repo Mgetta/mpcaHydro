@@ -156,7 +156,7 @@ from typing import List
 import duckdb
 import pandas as pd
 from pathlib import Path
-from mpcaHydro.warehouse import outlets
+from mpcaHydro import outlets
 from mpcaHydro.warehouse import sql_loader
 
 
