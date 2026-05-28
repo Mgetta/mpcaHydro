@@ -40,11 +40,6 @@ def get_views_reports_sql() -> str:
     """Load SQL for creating reports views."""
     return load_sql('views_reports.sql')
 
-
-def get_views_outlets_sql() -> str:
-    """Load SQL for creating outlets views."""
-    return load_sql('views_outlets.sql')
-
 def get_transforms_wiski_sql() -> str:
     """Load SQL for transforming WISKI data."""
     return load_sql('transforms_wiski.sql')
@@ -52,10 +47,6 @@ def get_transforms_wiski_sql() -> str:
 def get_transforms_equis_sql() -> str:
     """Load SQL for transforming EQUIS data."""
     return load_sql('transforms_equis.sql')
-
-def get_transforms_baseflow_sql() -> str:
-    """Load SQL for transforming baseflow data."""
-    return load_sql('transforms_baseflow.sql')
 
 def get_derived_tables_sql() -> str:
     """Load SQL for creating derived tables (baseflow)."""

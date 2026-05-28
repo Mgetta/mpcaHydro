@@ -78,6 +78,7 @@ WITH
             datetime,
             date,
             time,
+            unit,
             -- Create a bucket solely for joining to the sub-daily flow
             date_trunc('hour', datetime) AS hour_bucket, 
             constituent,
@@ -91,6 +92,8 @@ SELECT
     c.outlet_id,
     c.datetime,
     c.date,
+    c.time,
+    c.unit,
     c.constituent,
     c.constituent_value AS value,
     

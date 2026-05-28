@@ -503,3 +503,155 @@ def get_wiski_data(con: duckdb.DuckDBPyConnection, constituent: str):
     """
     df = con.execute(query, [constituent]).fetch_df()
     return df
+
+
+
+
+
+# Helpful Queries:
+def get_outlets_by_model(con: duckdb.DuckDBPyConnection, model_name: str):
+    """Query the outlet database for all station-reach pairs in a model.
+
+    Parameters
+    ----------
+    model_name : str
+        Repository name.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Rows from ``outlets.station_reach_pairs`` for *model_name*.
+    """
+    df = con.execute(
+        """
+        SELECT r.*
+        FROM outlets.station_reach_pairs r
+        WHERE r.repository_name = ?
+        """,
+        [model_name]
+    ).fetchdf()
+    return df
+
+def get_outlets_by_reach(con: duckdb.DuckDBPyConnection, reach_id: int, model_name: str):
+    """Return outlet rows containing a specific reach within a model.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        Open DuckDB connection.
+    reach_id : int
+        HSPF model reach identifier.
+    model_name : str
+        Repository name.
+
+    Returns
+    -------
+    pandas.DataFrame
+    """
+    df = con.execute(
+        """
+        SELECT r.*
+        FROM outlets.station_reach_pairs r
+        WHERE r.reach_id = ? AND r.repository_name = ?
+        """,
+        [reach_id, model_name]).fetchdf()
+    return df
+
+def get_outlets_by_station(con: duckdb.DuckDBPyConnection, station_id: str, station_origin: str):
+    """Return outlet rows for a specific station and data origin.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        Open DuckDB connection.
+    station_id : str
+        Station identifier.
+    station_origin : str
+        ``'wiski'`` or ``'equis'``.
+
+    Returns
+    -------
+    pandas.DataFrame
+    """
+
+    df = con.execute(
+    """
+    SELECT r.*
+    FROM outlets.station_reach_pairs r
+    WHERE r.station_id = ? AND r.station_origin = ?
+    """,
+    [station_id, station_origin]).fetchdf()
+    return df
+
+def get_station_opnids(con: duckdb.DuckDBPyConnection, station_id: str, station_origin: str):
+    """Return reach IDs associated with a station from the outlet database.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        Open DuckDB connection.
+    station_id : str
+        Station identifier.
+    station_origin : str
+        ``'wiski'`` or ``'equis'``.
+
+    Returns
+    -------
+    list of int
+        Model reach IDs (``opnids``) linked to the station.
+    """
+    df = con.execute(
+        """
+        SELECT r.reach_id
+        FROM outlets.station_reach_pairs r
+        WHERE r.station_id = ? AND r.station_origin = ?
+        """,
+        [station_id, station_origin]).fetchdf()
+    return df['reach_id'].tolist()
+
+def get_outlet_opnids(con: duckdb.DuckDBPyConnection, outlet_id: int):
+    """Return the unique set of reach IDs for an outlet.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        Open DuckDB connection.
+    outlet_id : int
+        Outlet group identifier.
+
+    Returns
+    -------
+    list of int
+    """
+    df = con.execute(
+        """
+        SELECT r.reach_id
+        FROM outlets.station_reach_pairs r
+        WHERE r.outlet_id = ?
+        """,
+        [outlet_id]).fetchdf()
+    return list(set(df['reach_id'].tolist()))
+
+def get_outlet_stations(con: duckdb.DuckDBPyConnection, outlet_id: int):
+    """Return station identifiers and origins for an outlet.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        Open DuckDB connection.
+    outlet_id : int
+        Outlet group identifier.
+
+    Returns
+    -------
+    list of dict
+        Each dict has keys ``'station_id'`` and ``'station_origin'``.
+    """
+    df = con.execute(
+        """
+        SELECT r.station_id, r.station_origin
+        FROM outlets.station_reach_pairs r
+        WHERE r.outlet_id = ?
+        """,
+        [outlet_id]).fetchdf()
+    return df[['station_id', 'station_origin']].drop_duplicates()

@@ -162,7 +162,7 @@ class DataManagerWrapper:
     
     def get_outlets_by_reach(self, reach_id: int,model_name: str) -> pd.DataFrame:
         """Return outlet rows containing *reach_id* in this model."""
-        return outlets.get_outlets_by_reach(self.con, reach_id, model_name)
+        return queries.get_outlets_by_reach(self.con, reach_id, model_name)
 
     def get_outlets_by_station(self, station_id: str, station_origin: str):
         """Return outlet rows for *station_id* (must belong to this model).
@@ -172,15 +172,15 @@ class DataManagerWrapper:
         AssertionError
             If *station_id* is not found in this model's station lists.
         """
-        return outlets.get_outlets_by_station(self.con, station_id, station_origin)
+        return queries.get_outlets_by_station(self.con, station_id, station_origin)
 
     def get_outlet_opnids(self, outlet_id: int):
         """Return unique reach IDs for the given outlet."""
-        return outlets.get_outlet_opnids(self.con, outlet_id)
+        return queries.get_outlet_opnids(self.con, outlet_id)
     
     def get_outlet_stations(self, outlet_id: int):
         """Return station IDs and origins for the given outlet."""
-        return outlets.get_outlet_stations(self.con, outlet_id)
+        return queries.get_outlet_stations(self.con, outlet_id)
 
 
     def get_station_ids(self, station_origin: Optional[str] = None) -> List[str]:
