@@ -24,6 +24,7 @@ SELECT
     o.datetime,
     os.outlet_id,
     o.constituent,
+    o.unit,
     AVG(o.value) AS value,
     COUNT(o.value) AS count
 FROM

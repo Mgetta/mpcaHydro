@@ -26,11 +26,6 @@ def get_staging_tables_sql() -> str:
     return load_sql('staging_tables.sql')
 
 
-def get_analytics_tables_sql() -> str:
-    """Load SQL for creating analytics tables."""
-    return load_sql('analytics_tables.sql')
-
-
 def get_outlets_schema_sql() -> str:
     """Load SQL for creating outlets schema and tables."""
     return load_sql('outlets_schema.sql')
@@ -49,11 +44,6 @@ def get_views_reports_sql() -> str:
 def get_views_outlets_sql() -> str:
     """Load SQL for creating outlets views."""
     return load_sql('views_outlets.sql')
-
-
-def get_calibration_schema_sql() -> str:
-    """Load SQL for creating calibration schema (SQLite)."""
-    return load_sql('calibration_schema.sql')
 
 def get_transforms_wiski_sql() -> str:
     """Load SQL for transforming WISKI data."""

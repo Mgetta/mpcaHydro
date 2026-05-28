@@ -15,6 +15,7 @@ timezone_normalized AS (
         CASE
             WHEN SAMPLE_DATE_TIMEZONE = 'CST' THEN SAMPLE_DATE_TIME
             WHEN SAMPLE_DATE_TIMEZONE = 'CDT' THEN SAMPLE_DATE_TIME - INTERVAL '1 hour'
+            WHEN SAMPLE_DATE_TIMEZONE = 'UTC' THEN SAMPLE_DATE_TIME - INTERVAL '6 hour'
             ELSE SAMPLE_DATE_TIME -- If timezone is missing or unrecognized assume it's already in UTC-6
         END AS datetime
     FROM mapped
@@ -75,7 +76,7 @@ sample_method_filtered AS (
     SELECT 
         n.*
     FROM nondetects_replaced n
-    INNER JOIN mappings.equis_sample_methods esm 
+    LEFT JOIN mappings.equis_sample_methods esm 
         ON n.sample_method = esm.sample_method
     WHERE esm.include = 1
 ),
@@ -102,7 +103,7 @@ hourly_averaged AS (
         'MEAN' AS statistic,
         60 AS interval_minutes,
         station_origin,
-        (date + time) AS datetime
+        COALESCE(date + time, date::TIMESTAMP) AS datetime
     FROM sample_method_filtered
     
     GROUP BY 
