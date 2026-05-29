@@ -36,3 +36,16 @@ SELECT
     r.repository_name
 FROM outlets.outlet_stations s
 JOIN outlets.outlet_reaches r USING (outlet_id);
+
+CREATE OR REPLACE VIEW outlets.stations AS
+SELECT
+    s.outlet_id,
+    s.station_id,
+    s.station_origin    AS source,
+    s.repository_name   AS repo_name,
+    s.true_opnid,
+    s.wplmn_flag,
+    s.comments,
+    r.reach_id          AS opnids   -- single int per row, matches old semantics
+FROM outlets.outlet_stations s
+LEFT JOIN outlets.outlet_reaches r USING (outlet_id);
