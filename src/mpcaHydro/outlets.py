@@ -59,6 +59,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import duckdb
+from mpcaHydro.warehouse import sql_loader
 from mpcaHydro.warehouse.sql_loader import get_outlets_schema_sql
 #from hspf_tools.calibrator import etlWISKI, etlSWD
 
@@ -80,6 +81,7 @@ def _construct_MODL_DB(stations_wiski, stations_equis):
     MODL_DB['outlet_id'] = MODL_DB.index.map(outlet_id_map)
     return MODL_DB
 
+
 def _load_stations():
     _stations_wiski = gpd.read_file(str(Path(__file__).resolve().parent/'data\\stations_wiski.gpkg'))
     stations_wiski = _stations_wiski.loc[:,['station_id','true_opnid','opnids','comments','modeled','repo_name','wplmn_flag']]
@@ -88,23 +90,26 @@ def _load_stations():
     stations_equis = _stations_equis.loc[:,['station_id','true_opnid','opnids','comments','modeled','repo_name']]
     stations_equis['source'] = 'equis'
     stations_equis['wplmn_flag'] = 0
-    return _stations_wiski, stations_wiski, _stations_equis, stations_equis
 
-_stations_wiski, stations_wiski, _stations_equis, stations_equis = _load_stations()
-MODL_DB = _construct_MODL_DB(stations_wiski, stations_equis)
+    stations = pd.concat([stations_wiski, stations_equis], ignore_index=True)
+    stations['opnids'] = stations['opnids'].str.strip().replace('', pd.NA)
+    stations['opnids'] = stations['opnids'].str.split(',')
+    stations = stations.explode('opnids')
+    stations['opnids'] = stations['opnids'].str.strip()
+    stations['opnids'] = pd.to_numeric(stations['opnids'])
+    stations['outlet_id'] = stations.groupby(['opnids','repo_name']).ngroup().astype('Int64')
 
-#TODO terrible terrible approach, need to refactor
-def _reload():
-    """Reload the in-memory station registries from their GeoPackage sources.
+    return stations
 
-    Refreshes the module-level globals ``_stations_wiski``,
-    ``stations_wiski``, ``_stations_equis``, ``stations_equis``, and
-    :data:`MODL_DB`.  Call this after modifying the bundled GeoPackage
-    files to pick up changes without restarting the interpreter.
-    """
-    global _stations_wiski, stations_wiski, _stations_equis, stations_equis, MODL_DB
-    _stations_wiski, stations_wiski, _stations_equis, stations_equis = _load_stations()
-    MODL_DB = _construct_MODL_DB(stations_wiski, stations_equis)
+
+def _write_modl_db(output_path = None, model_name = None):
+    """Write outlet station and reach data to CSV files for inspection."""
+    if output_path is None:
+        output_path = Path(__file__).parent/'data'
+    stations = _load_stations()
+    if model_name is not None:
+        stations = stations[stations['repo_name'] == model_name]
+    stations.to_csv(Path(output_path)/'modl_db.csv', index=False)
 
 
 def split_opnids(opnids: list):
@@ -121,36 +126,49 @@ def split_opnids(opnids: list):
         Flat list of integer reach IDs.
     """
     return [int(float(j)) for i in opnids for j in i]
-
-def get_model_db(model_name: str):
-    """Return the subset of :data:`MODL_DB` for a specific model repository.
+#%%
+def get_model_db(con, model_name: str):
+    """Return the subset of stations data for a specific model repository.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name (e.g. ``'Clearwater'``).
 
     Returns
     -------
     pandas.DataFrame
-        Rows from :data:`MODL_DB` matching *model_name*.
+        Rows from outlets.stations matching *model_name*.
     """
-    return MODL_DB.query('repo_name == @model_name')
+    return con.execute(
+        "SELECT * FROM outlets.stations WHERE repo_name = ?", 
+        (model_name,)
+    ).df()
 
-def valid_models():
-    """Return a list of all unique model repository names in :data:`MODL_DB`.
+def valid_models(con):
+    """Return a list of all unique model repository names.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
 
     Returns
     -------
     list of str
     """
-    return MODL_DB['repo_name'].unique().tolist()
+    df = con.execute("SELECT DISTINCT repo_name FROM outlets.stations WHERE repo_name IS NOT NULL").df()
+    return df['repo_name'].tolist()
 
-def equis_stations(model_name):
-    """Return EQuIS station IDs for a model (from the raw GeoPackage data).
+def equis_stations(con, model_name: str):
+    """Return EQuIS station IDs for a model.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -158,13 +176,19 @@ def equis_stations(model_name):
     -------
     list of str
     """
-    return _stations_equis.query('repo_name == @model_name')['station_id'].tolist()
+    df = con.execute(
+        "SELECT station_id FROM outlets.stations WHERE source = 'equis' AND repo_name = ?", 
+        (model_name,)
+    ).df()
+    return df['station_id'].tolist()
 
-def wiski_stations(model_name):
-    """Return WISKI station IDs for a model (from the raw GeoPackage data).
+def wiski_stations(con, model_name: str):
+    """Return WISKI station IDs for a model.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -172,13 +196,19 @@ def wiski_stations(model_name):
     -------
     list of str
     """
-    return _stations_wiski.query('repo_name == @model_name')['station_id'].tolist()
+    df = con.execute(
+        "SELECT station_id FROM outlets.stations WHERE source = 'wiski' AND repo_name = ?", 
+        (model_name,)
+    ).df()
+    return df['station_id'].tolist()
 
-def wplmn_stations(model_name):
+def wplmn_stations(con, model_name: str):
     """Return WISKI station IDs flagged as WPLMN for a model.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -186,13 +216,19 @@ def wplmn_stations(model_name):
     -------
     list of str
     """
-    return MODL_DB.query('repo_name == @model_name and wplmn_flag == 1 and source == "wiski"')['station_id'].tolist()
+    df = con.execute(
+        "SELECT station_id FROM outlets.stations WHERE source = 'wiski' AND repo_name = ? AND wplmn_flag = 1", 
+        (model_name,)
+    ).df()
+    return df['station_id'].tolist()    
 
-def wplmn_station_opnids(model_name):
+def wplmn_station_opnids(con, model_name: str):
     """Return reach IDs associated with WPLMN stations for a model.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -200,14 +236,20 @@ def wplmn_station_opnids(model_name):
     -------
     list of int
     """
-    opnids = MODL_DB.dropna(subset=['opnids']).query('repo_name == @model_name and wplmn_flag == 1 and source == "wiski"')['opnids'].str.split(',').to_list()
-    return split_opnids(opnids)
+    df = con.execute("""
+        SELECT DISTINCT opnids 
+        FROM outlets.stations 
+        WHERE repo_name = ? AND wplmn_flag = 1 AND source = 'wiski' AND opnids IS NOT NULL
+    """, (model_name,)).df()
+    return df['opnids'].tolist()
 
-def wiski_station_opnids(model_name):
+def wiski_station_opnids(con, model_name: str):
     """Return reach IDs for all WISKI stations in a model.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -215,14 +257,20 @@ def wiski_station_opnids(model_name):
     -------
     list of int
     """
-    opnids = MODL_DB.dropna(subset=['opnids']).query('repo_name == @model_name and source == "wiski"')['opnids'].str.split(',').to_list()
-    return split_opnids(opnids)
+    df = con.execute("""
+        SELECT DISTINCT opnids 
+        FROM outlets.stations 
+        WHERE repo_name = ? AND source = 'wiski' AND opnids IS NOT NULL
+    """, (model_name,)).df()
+    return df['opnids'].tolist()
 
-def equis_station_opnids(model_name):
+def equis_station_opnids(con, model_name: str):
     """Return reach IDs for all EQuIS stations in a model.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -230,14 +278,20 @@ def equis_station_opnids(model_name):
     -------
     list of int
     """
-    opnids = MODL_DB.dropna(subset=['opnids']).query('repo_name == @model_name and source == "equis"')['opnids'].str.split(',').to_list()
-    return split_opnids(opnids)
+    df = con.execute("""
+        SELECT DISTINCT opnids 
+        FROM outlets.stations 
+        WHERE repo_name = ? AND source = 'equis' AND opnids IS NOT NULL
+    """, (model_name,)).df()
+    return df['opnids'].tolist()
 
-def mapped_station_opnids(station_id, station_origin):
+def mapped_station_opnids(con, station_id: str, station_origin: str):
     """Return reach IDs mapped to a specific station.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     station_id : str
         Station identifier.
     station_origin : str
@@ -247,14 +301,20 @@ def mapped_station_opnids(station_id, station_origin):
     -------
     list of int
     """
-    opnids = MODL_DB.dropna(subset=['opnids']).query('station_id == @station_id and source == @station_origin')['opnids'].str.split(',').to_list()
-    return split_opnids(opnids)
+    df = con.execute("""
+        SELECT DISTINCT opnids 
+        FROM outlets.stations 
+        WHERE station_id = ? AND source = ? AND opnids IS NOT NULL
+    """, (station_id, station_origin)).df()
+    return df['opnids'].tolist()
 
-def mapped_stations(model_name, station_origin):
+def mapped_stations(con, model_name: str, station_origin: str):
     """Return station IDs for a model filtered by data origin.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
     station_origin : str
@@ -269,14 +329,21 @@ def mapped_stations(model_name, station_origin):
     AssertionError
         If *station_origin* is not ``'wiski'`` or ``'equis'``.
     """
-    assert(station_origin in ['wiski', 'equis'])
-    return MODL_DB.dropna(subset=['opnids']).query('repo_name == @model_name and source == @station_origin')['station_id'].tolist()
+    assert station_origin in ['wiski', 'equis']
+    df = con.execute("""
+        SELECT DISTINCT station_id 
+        FROM outlets.stations 
+        WHERE repo_name = ? AND source = ? AND opnids IS NOT NULL
+    """, (model_name, station_origin)).df()
+    return df['station_id'].tolist()
     
-def mapped_equis_stations(model_name):
+def mapped_equis_stations(con, model_name: str):
     """Return EQuIS station IDs that have reach mappings for a model.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -284,13 +351,20 @@ def mapped_equis_stations(model_name):
     -------
     list of str
     """
-    return MODL_DB.dropna(subset=['opnids']).query('repo_name == @model_name and source == "equis"')['station_id'].tolist()
+    df = con.execute("""
+        SELECT DISTINCT station_id 
+        FROM outlets.stations 
+        WHERE repo_name = ? AND source = 'equis' AND opnids IS NOT NULL
+    """, (model_name,)).df()
+    return df['station_id'].tolist()
 
-def mapped_wiski_stations(model_name):
+def mapped_wiski_stations(con, model_name: str):
     """Return WISKI station IDs that have reach mappings for a model.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -298,28 +372,42 @@ def mapped_wiski_stations(model_name):
     -------
     list of str
     """
-    return MODL_DB.dropna(subset=['opnids']).query('repo_name == @model_name and source == "wiski"')['station_id'].tolist()
+    df = con.execute("""
+        SELECT DISTINCT station_id 
+        FROM outlets.stations 
+        WHERE repo_name = ? AND source = 'wiski' AND opnids IS NOT NULL
+    """, (model_name,)).df()
+    return df['station_id'].tolist()
 
-def outlets(model_name):
+def outlets(con, model_name: str):
     """Return outlet groups as a list of DataFrames, one per outlet.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
     Returns
     -------
     list of pandas.DataFrame
-        Each element is the subset of :data:`MODL_DB` for one outlet.
+        Each element is the subset of stations for one outlet group.
     """
-    return [group for _, group in MODL_DB.dropna(subset=['opnids']).query('repo_name == @model_name').groupby(by = ['opnids','repo_name'])]
+    df = con.execute("""
+        SELECT * FROM outlets.stations 
+        WHERE repo_name = ? AND opnids IS NOT NULL
+    """, (model_name,)).df()
+    
+    return [group for _, group in df.groupby(by=['opnids', 'repo_name'])]
 
-def outlet_stations(model_name):
+def outlet_stations(con, model_name: str):
     """Return station ID lists grouped by outlet.
 
     Parameters
     ----------
+    con : duckdb.DuckDBPyConnection
+        Connection to the DuckDB database.
     model_name : str
         Repository name.
 
@@ -328,253 +416,34 @@ def outlet_stations(model_name):
     list of list of str
         Each inner list contains station IDs belonging to one outlet.
     """
-    return [group['station_id'].to_list() for _, group in MODL_DB.dropna(subset=['opnids']).query('repo_name == @model_name').groupby(by = ['opnids','repo_name'])]
-
-
-def connect(db_path, read_only=True):
-    """Open a DuckDB connection to the outlet database.
-
-    Parameters
-    ----------
-    db_path : str
-        Path to the DuckDB file.
-    read_only : bool, default True
-        Open in read-only mode.
-
-    Returns
-    -------
-    duckdb.DuckDBPyConnection
-    """
-    #Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    return duckdb.connect(db_path,read_only=read_only)
-
-
-def init_db(db_path: str, reset: bool = False):
-    """Initialise the DuckDB outlet database with schema and tables.
-
-    Creates the ``outlets`` schema and its tables
-    (``outlet_groups``, ``outlet_stations``, ``outlet_reaches``) plus the
-    ``station_reach_pairs`` view.  If *reset* is ``True``, deletes the
-    existing database file first.
-
-    Parameters
-    ----------
-    db_path : str
-        Filesystem path for the DuckDB file.
-    reset : bool, default False
-        Delete the existing file before creating a fresh database.
-    """
-    db_path = Path(db_path)
-    if reset and db_path.exists():
-        db_path.unlink()
-    with connect(db_path.as_posix(),False) as con:
-        con.execute(get_outlets_schema_sql())
-
-
-# constructors:
-def build_outlet_db(db_path: str = None):
-    """Build (or rebuild) the complete outlet DuckDB database.
-
-    Initialises the database schema, then populates all outlet groups,
-    stations, and reaches from :data:`MODL_DB`.
-
-    Parameters
-    ----------
-    db_path : str, optional
-        Path for the DuckDB file.  Defaults to :data:`DB_PATH`.
-    """
-    if db_path is None:
-        db_path = DB_PATH
-    init_db(db_path,reset=True)
-    with connect(db_path,False) as con:
-        build_outlets(con)
-
+    df = con.execute("""
+        SELECT opnids, repo_name, station_id 
+        FROM outlets.stations 
+        WHERE repo_name = ? AND opnids IS NOT NULL
+    """, (model_name,)).df()
+    
+    return [group['station_id'].to_list() for _, group in df.groupby(by=['opnids', 'repo_name'])]
 
 def build_outlets(con, model_name: str = None):
     """Populate outlet tables from MODL_DB — bulk insert, no loops."""
-    if model_name is not None:
-        modl_db = get_model_db(model_name)
-    else:
-        modl_db = MODL_DB
-
-    # ── outlet_groups: one row per unique outlet ──
-    df_groups = (
-        modl_db[['outlet_id', 'repo_name']]
-        .drop_duplicates('outlet_id')
-        .rename(columns={'repo_name': 'repository_name'})
-        .assign(outlet_name=None, notes=None)
-    )
-    con.execute("""
-        INSERT INTO outlets.outlet_groups (outlet_id, repository_name, outlet_name, notes)
-        SELECT outlet_id, repository_name, outlet_name, notes FROM df_groups
-    """)
-
-    # ── outlet_stations: one row per unique station+source ──
-    df_stations = (
-        modl_db
-        .drop_duplicates(subset=['station_id', 'source'])
-        [['outlet_id', 'station_id', 'source', 'true_opnid', 'repo_name', 'comments']]
-        .rename(columns={'source': 'station_origin', 'repo_name': 'repository_name'})
-    )
-    con.execute("""
-        INSERT INTO outlets.outlet_stations 
-            (outlet_id, station_id, station_origin, true_opnid, repository_name, comments)
-        SELECT outlet_id, station_id, station_origin, true_opnid, repository_name, comments
-        FROM df_stations
-    """)
-
-    # ── outlet_reaches: explode comma-separated opnids, one row per reach ──
-    df_reaches = (
-        modl_db[['outlet_id', 'opnids', 'repo_name']]
-        .dropna(subset=['opnids'])
-        .assign(reach_id=lambda d: d['opnids'].str.split(','))
-        .explode('reach_id')
-        .assign(reach_id=lambda d: d['reach_id'].str.strip().astype(float).astype(int))
-        .drop_duplicates(subset=['outlet_id', 'reach_id'])
-        [['outlet_id', 'reach_id', 'repo_name']]
-        .rename(columns={'repo_name': 'repository_name'})
-    )
-    con.execute("""
-        INSERT INTO outlets.outlet_reaches (outlet_id, reach_id, repository_name)
-        SELECT outlet_id, reach_id, repository_name FROM df_reaches
-    """)
-
-
-def build_outlets_legacy(con, model_name: str = None):
-    """Populate the outlet tables from :data:`MODL_DB`.
-
-    For each outlet group, inserts rows into ``outlet_groups``,
-    ``outlet_reaches``, and ``outlet_stations``.  If *model_name* is
-    provided, only that model's outlets are created.
-
-    Parameters
-    ----------
-    con : duckdb.DuckDBPyConnection
-        Writable DuckDB connection.
-    model_name : str, optional
-        Restrict to a single model.  If ``None``, all models are
-        populated.
-    """
-    if model_name is not None:
-        modl_db = get_model_db(model_name)
-    else:
-        modl_db = MODL_DB
-
-    for outlet_id in modl_db['outlet_id'].unique():
-        group = modl_db.query('outlet_id == @outlet_id')
-        repo_name = group['repo_name'].iloc[0]
-        add_outlet(con, outlet_id = int(outlet_id), outlet_name = None, repository_name = repo_name, notes = None)
-        opnids = set(split_opnids(group['opnids'].str.split(',').to_list()))
-        for opnid in opnids:
-            add_reach(con, outlet_id = int(outlet_id), reach_id = int(opnid), repository_name = repo_name)
-        for _, row in group.drop_duplicates(subset=['station_id', 'source']).iterrows():
-            add_station(con, outlet_id = int(outlet_id), station_id = row['station_id'], station_origin = row['source'], true_opnid = row['true_opnid'], repository_name= repo_name, comments = row['comments'])
-
-
-def add_outlet(con,
-               outlet_id: int,
-               repository_name: str,
-               outlet_name=None,
-               notes=None):
-    """Insert a new outlet group into the database.
-
-    Parameters
-    ----------
-    con : duckdb.DuckDBPyConnection
-        Writable DuckDB connection.
-    outlet_id : int
-        Unique outlet identifier.
-    repository_name : str
-        Model repository name.
-    outlet_name : str, optional
-        Human-readable outlet label.
-    notes : str, optional
-        Free-text notes.
-    """
-    con.execute(
-        "INSERT INTO outlets.outlet_groups (outlet_id, repository_name, outlet_name, notes) VALUES (?, ?, ?, ?)",
-        [outlet_id, repository_name, outlet_name, notes]
-    )
-
-def add_station(con,
-                outlet_id: int,
-                station_id: int,
-                station_origin: str,
-                true_opnid: int,
-                repository_name: str,
-                comments=None):
-    """Insert a station membership record for an outlet.
-
-    The ``(station_id, station_origin)`` pair must be unique across all
-    outlets (enforced by a database constraint).
-
-    Parameters
-    ----------
-    con : duckdb.DuckDBPyConnection
-        Writable DuckDB connection.
-    outlet_id : int
-        Parent outlet group identifier.
-    station_id : int
-        Monitoring station identifier.
-    station_origin : str
-        ``'wiski'`` or ``'equis'``.
-    true_opnid : int
-        The primary reach ID that best represents this station's
-        location in the model network.
-    repository_name : str
-        Model repository name.
-    comments : str, optional
-        Free-text comments.
-    """
-    con.execute(
-        """INSERT INTO outlets.outlet_stations
-           (outlet_id, station_id, station_origin, true_opnid, repository_name, comments)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        [outlet_id, station_id, station_origin, true_opnid, repository_name, comments]
-    )
-
-def add_reach(con,
-              outlet_id: int,
-              reach_id: int,
-              repository_name: str):
-    """Insert a reach membership record for an outlet.
-
-    A reach may appear in multiple outlets, enabling many-to-many
-    relationships between stations and reaches across the model.
-
-    Parameters
-    ----------
-    con : duckdb.DuckDBPyConnection
-        Writable DuckDB connection.
-    outlet_id : int
-        Parent outlet group identifier.
-    reach_id : int
-        HSPF model reach identifier.
-    repository_name : str
-        Model repository name.
-    """
-    con.execute(
-        """INSERT INTO outlets.outlet_reaches (outlet_id, reach_id, repository_name)
-           VALUES (?, ?, ?)""",
-        [outlet_id, reach_id, repository_name]
-    )
-
-
     
-#row = modl_db.MODL_DB.iloc[0]
-
-#info = etlWISKI.info(row['station_id'])
-
-#modl_db.MODL_DB.query('source == "equis"')
-
-# outlet_dict = {'stations': {'wiski': ['E66050001'],
-#                'equis': ['S002-118']},
-#                'reaches': {'Clearwater': [650]}
-                      
+    modl_db = pd.read_csv(Path(__file__).parent/'data'/'modl_db.csv')
+    
+    if model_name is not None:
+        modl_db = modl_db.query('repo_name == @model_name')
 
 
+    con.execute("""
+    INSERT INTO outlets.stations (
+        station_id, source, repo_name, true_opnid, opnids, 
+        outlet_id, wplmn_flag, modeled, comments
+    ) 
+    SELECT 
+        station_id, source, repo_name, true_opnid, opnids, 
+        outlet_id, wplmn_flag, modeled, comments 
+    FROM modl_db
 
-# station_ids = ['S002-118']
-# #station_ids = ['E66050001']
-# reach_ids = [650]
-# flow_station_ids =  ['E66050001']
+""")
+    
+    con.execute(sql_loader.get_outlets_schema_sql())
+
