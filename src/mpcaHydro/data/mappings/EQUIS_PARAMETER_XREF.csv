@@ -1,0 +1,88 @@
+CAS_RN,CHEMICAL_NAME,PARAMETER,constituent
+BOD,"Biochemical oxygen demand, standard conditions",Biochemical Oxygen Demand,BOD
+BOD,"Biochemical oxygen demand, standard conditions",Biochemical Oxygen Demand (BOD),BOD
+BOD,"Biochemical oxygen demand, standard conditions","Biochemical oxygen demand, standard conditions",BOD
+479-61-8,Chlorophyll a,Chlorophyll a,CHLA
+479-61-8,Chlorophyll a,Chlorophyll A,CHLA
+CHLA-CORR,"Chlorophyll a, corrected for pheophytin",Chlorophyll A,CHLA
+CHLA-CORR,"Chlorophyll a, corrected for pheophytin",Chlorophyll-A,CHLA
+CHLA-CORR,"Chlorophyll a, corrected for pheophytin",Chlorophyll,CHLA
+CHLA-CORR,"Chlorophyll a, corrected for pheophytin","Chlorophyll a, pheophytin-adjusted",CHLA
+CHLA-CORR,"Chlorophyll a, corrected for pheophytin","Chlorophyll a, corrected for pheophytin",CHLA
+CHLA-CORR,"Chlorophyll a, corrected for pheophytin","Chlorophyll-a, Pheophytin Corrected",CHLA
+CHLA-CORR,"Chlorophyll a, corrected for pheophytin","Chlorophyll a, corrected for pheophytin - Periphyton (attached)",CHLA
+CHLA-CORR,"Chlorophyll a, corrected for pheophytin",Chlorophyll a,CHLA
+CHLA-C-PERI,"Chlorophyll a, corrected for pheophytin - Periphyton (attached)","Chlorophyll a, corrected for pheophytin - Periphyton (attached)",CHLA
+FECAL-COLIF,Fecal Coliform,Fecal Coliform,ECOLI
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),Nitrate/Nitrite as N (N+N) as N,N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),"Nitrate + Nitrite Nitrogen, Dissolved as N",N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),Nitrate/Nitrite as N as N,N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),"Nitrogen, NO2 plus NO3 as N",N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),N+N as N,N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),Nitrate/Nitrite as N,N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),Inorganic nitrogen (nitrate and nitrite) as N,N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),"Nitrate + Nitrite Nitrogen, Total",N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),"Nitrate + Nitrite Nitrogen, Total as N",N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),Nitrate+Nitrite Nitrogen as N,N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),Inorganic nitrogen (nitrate and nitrate) as N,N
+NO2NO3,Inorganic nitrogen (nitrate and nitrite),Nitrate+Nitrite as N,N
+14797-55-8,Nitrate,"Nitrogen, nitrate, as NO3 as N",NO3
+14797-55-8,Nitrate,Nitrate as N as N,NO3
+14797-55-8,Nitrate,Nitrate-N as N,NO3
+14797-55-8,Nitrate,"Nitrogen, nitrate, as N as N",NO3
+14797-55-8,Nitrate,Nitrate as N,NO3
+14797-65-0,Nitrite,"Nitrogen, nitrite, as N as N",NO2
+14797-65-0,Nitrite,Nitrite as N,NO2
+14797-65-0,Nitrite,Nitrite as N as N,NO2
+14797-65-0,Nitrite,Nitrite-N as N,NO2
+14797-65-0,Nitrite,"Nitrogen, nitrite, as NO2 as N",NO2
+14265-44-2,Orthophosphate,"Orthophosphate, as P as P",OP
+14265-44-2,Orthophosphate,Orthophosphate as P as P,OP
+14265-44-2,Orthophosphate,"Orthophosphate as P, Dissolved as P",OP
+14265-44-2,Orthophosphate,Orthophosphate as P (LF) as P,OP
+14265-44-2,Orthophosphate,phosphate-P as P,OP
+14265-44-2,Orthophosphate,"Orthophosphate Phosphorus, Total as P",OP
+14265-44-2,Orthophosphate,"Orthophosphate Phosphorus, Dissolved as P",OP
+14265-44-2,Orthophosphate,"Ortho Phosphorus, Dissolved as P",OP
+14265-44-2,Orthophosphate,Orthophosphate as P,OP
+14265-44-2,Orthophosphate,Ortho Phosphorus as P,OP
+14265-44-2,Orthophosphate,"Phosphorus, Soluble Ortho as P",OP
+14265-44-2,Orthophosphate,Orthophosphate as P (FF) as P,OP
+14265-44-2,Orthophosphate,Phosphorus as P,OP
+SSC,Suspended Sediment Concentration (SSC),Suspended Sediment Concentration (SSC),SSC
+SOLIDS-TDS,Total dissolved solids,Residue - filterable (TDS),TDS
+SOLIDS-TDS,Total dissolved solids,Total dissolved solids (TDS),TDS
+SOLIDS-TDS,Total dissolved solids,"Solids, Total Dissolved",TDS
+SOLIDS-TDS,Total dissolved solids,Total dissolved solids,TDS
+SOLIDS-TDS,Total dissolved solids,Total Dissolved Solids,TDS
+N-KJEL,Kjeldahl nitrogen,"Kjeldahl Nitrogen, Total as N",TKN
+N-KJEL,Kjeldahl nitrogen,Total Kjeldahl Nitrogen as N,TKN
+N-KJEL,Kjeldahl nitrogen,TKN as N,TKN
+N-KJEL,Kjeldahl nitrogen,"Nitrogen, Total Kjeldahl (TKN) as N",TKN
+N-KJEL,Kjeldahl nitrogen,"Nitrogen, Total Kjeldahl as N",TKN
+N-KJEL,Kjeldahl nitrogen,Kjeldahl nitrogen as N,TKN
+PHOSPHATE-P,Phosphate-phosphorus,Phosphate-phosphorus as P,TP
+7723-14-0,Phosphorus,Orthophosphate as P,TP
+7723-14-0,Phosphorus,"Phosphorus, Total as P",TP
+7723-14-0,Phosphorus,"Phosphorus, Total as P as P",TP
+7723-14-0,Phosphorus,"Phosphorus, Total Dissolved, as P (FF) as P",TP
+7723-14-0,Phosphorus,Total Diss Phosphorus as P,TP
+7723-14-0,Phosphorus,"Phosphorus, Dissolved as P",TP
+7723-14-0,Phosphorus,"Phosphorus, Total Dissolved, as P (LF) as P",TP
+7723-14-0,Phosphorus,Total Phosphorus as P,TP
+7723-14-0,Phosphorus,total phosphorus as P,TP
+7723-14-0,Phosphorus,Phosphorus as P,TP
+7723-14-0,Phosphorus,"Phosphorus, Total",TP
+SOLIDS-TS,Total solids,Total solids,TS
+SOLIDS-TS,Total solids,Total Solids,TS
+SOLIDS-TSS,Total suspended solids,"Solids, Total Suspended",TSS
+SOLIDS-TSS,Total suspended solids,Total Suspended Solids in Water,TSS
+SOLIDS-TSS,Total suspended solids,Total suspended solids,TSS
+SOLIDS-TSS,Total suspended solids,Residue - nonfilterable (TSS),TSS
+SOLIDS-TSS,Total suspended solids,total suspended solids,TSS
+SOLIDS-TSS,Total suspended solids,"Solids, Suspended",TSS
+SOLIDS-TSS,Total suspended solids,Total Suspended Solids,TSS
+TEMP-W,"Temperature, water","Temperature, water",WT
+TEMP-W,"Temperature, water","Temperature, field",WT
+TEMP-W,"Temperature, water","Temperature, Water",WT
+TEMP-W,"Temperature, water",Field Temperature,WT
