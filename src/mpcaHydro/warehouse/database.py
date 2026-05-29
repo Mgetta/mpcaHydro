@@ -171,7 +171,7 @@ def create_session(data_dir: str | Path = 'data') -> duckdb.DuckDBPyConnection:
     
     # Create outlets tables and views first
     con.execute(sql_loader.get_outlets_schema_sql())
-    outlets.build_outlets(con, model_name=None)
+    outlets.build_outlets(con)
 
     # Create mapping tables (e.g. WISKI parametertype_id → constituent)
     create_mapping_tables(con)

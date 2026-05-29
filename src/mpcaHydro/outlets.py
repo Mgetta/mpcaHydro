@@ -56,33 +56,15 @@ Key concepts
 """
 #import sqlite3
 from pathlib import Path
-import geopandas as gpd
 import pandas as pd
 import duckdb
 from mpcaHydro.warehouse import sql_loader
 from mpcaHydro.warehouse.sql_loader import get_outlets_schema_sql
-#from hspf_tools.calibrator import etlWISKI, etlSWD
 
-
-
-
-#stations_wiski = gpd.read_file('C:/Users/mfratki/Documents/GitHub/pyhcal/src/pyhcal/data/stations_wiski.gpkg')
-def _construct_MODL_DB(stations_wiski, stations_equis):
-    MODL_DB = pd.concat([stations_wiski,stations_equis])
-    MODL_DB['opnids'] = MODL_DB['opnids'].str.strip().replace('',pd.NA)
-    MODL_DB = MODL_DB.dropna(subset='opnids')
-    MODL_DB = MODL_DB.dropna(subset = 'repo_name')
-    MODL_DB = MODL_DB.drop_duplicates(['station_id','source']).reset_index(drop=True)
-    # Add outlet_id column to MODL_DB based on enumerate grouping
-    outlet_id_map = {}
-    for outlet_id, (_, group) in enumerate(MODL_DB.drop_duplicates(['station_id','source']).groupby(by=['opnids','repo_name'])):
-        for idx in group.index:
-            outlet_id_map[idx] = int(outlet_id)
-    MODL_DB['outlet_id'] = MODL_DB.index.map(outlet_id_map)
-    return MODL_DB
 
 
 def _load_stations():
+    import geopandas as gpd
     _stations_wiski = gpd.read_file(str(Path(__file__).resolve().parent/'data\\stations_wiski.gpkg'))
     stations_wiski = _stations_wiski.loc[:,['station_id','true_opnid','opnids','comments','modeled','repo_name','wplmn_flag']]
     stations_wiski['source'] = 'wiski'
@@ -92,13 +74,6 @@ def _load_stations():
     stations_equis['wplmn_flag'] = 0
 
     stations = pd.concat([stations_wiski, stations_equis], ignore_index=True)
-    stations['opnids'] = stations['opnids'].str.strip().replace('', pd.NA)
-    stations['opnids'] = stations['opnids'].str.split(',')
-    stations = stations.explode('opnids')
-    stations['opnids'] = stations['opnids'].str.strip()
-    stations['opnids'] = pd.to_numeric(stations['opnids'])
-    stations['outlet_id'] = stations.groupby(['opnids','repo_name']).ngroup().astype('Int64')
-
     return stations
 
 
@@ -111,22 +86,85 @@ def _write_modl_db(output_path = None, model_name = None):
         stations = stations[stations['repo_name'] == model_name]
     stations.to_csv(Path(output_path)/'modl_db.csv', index=False)
 
+def _parse_opnids(s: str) -> tuple[int, ...]:
+    """Parse 'opnids' cell into a sorted tuple of ints. Sorting makes
+    outlet identity insensitive to comma order in the source CSV."""
+    return tuple(sorted(int(float(x.strip())) for x in str(s).split(',') if x.strip()))
 
-def split_opnids(opnids: list):
-    """Flatten and convert a nested list of reach-ID strings to integers.
 
-    Parameters
-    ----------
-    opnids : list of list of str
-        Nested list, typically from ``Series.str.split(',').to_list()``.
+def _derive_tables(modl_db: pd.DataFrame):
+    """One station-row CSV → three normalised tables.
 
-    Returns
-    -------
-    list of int
-        Flat list of integer reach IDs.
+    Returns (df_groups, df_stations, df_reaches), ready for INSERT.
     """
-    return [int(float(j)) for i in opnids for j in i]
-#%%
+    df = modl_db.copy()
+    df['opnids'] = df['opnids'].astype(str).str.strip().replace({'': pd.NA, 'nan': pd.NA})
+    df = df.dropna(subset=['opnids', 'repo_name'])
+    df = df.drop_duplicates(['station_id', 'source']).reset_index(drop=True)
+
+    # Parse the comma-separated opnids once.
+    df['reach_tuple'] = df['opnids'].apply(_parse_opnids)
+
+    # Outlet identity = (sorted reach tuple, repo_name).  Stable, derived,
+    # deterministic — same CSV always produces same outlet_ids.
+    outlet_keys = (
+        df[['reach_tuple', 'repo_name']]
+        .drop_duplicates()
+        .sort_values(['repo_name', 'reach_tuple'])
+        .reset_index(drop=True)
+    )
+    outlet_keys['outlet_id'] = outlet_keys.index
+    df = df.merge(outlet_keys, on=['reach_tuple', 'repo_name'])
+
+    # 1. outlet_groups: one row per outlet
+    df_groups = (
+        outlet_keys[['outlet_id', 'repo_name']]
+        .rename(columns={'repo_name': 'repository_name'})
+        .assign(outlet_name=None, notes=None)
+    )
+
+    # 2. outlet_stations: one row per (outlet, station)
+    df_stations = (
+        df[['outlet_id', 'station_id', 'source', 'repo_name',
+            'true_opnid', 'wplmn_flag', 'comments']]
+        .rename(columns={'source': 'station_origin', 'repo_name': 'repository_name'})
+    )
+
+    # 3. outlet_reaches: one row per (outlet, reach), exploded from the tuple
+    df_reaches = (
+        outlet_keys
+        .assign(reach_id=outlet_keys['reach_tuple'])
+        .explode('reach_id')
+        .assign(reach_id=lambda d: d['reach_id'].astype(int))
+        [['outlet_id', 'reach_id', 'repo_name']]
+        .rename(columns={'repo_name': 'repository_name'})
+    )
+
+    return df_groups, df_stations, df_reaches
+
+
+def build_outlets(con, csv_path: Path | None = None):
+    """Build the outlets schema from the source CSV.
+
+    Called once per session by warehouse.database.create_session.
+    Raises on any constraint violation in the source data.
+    """
+    csv_path = Path(csv_path) if csv_path else (Path(__file__).parent / 'data' / 'modl_db.csv')
+
+    # 1. Ensure schema exists (PK/UQ/FK constraints declared in SQL)
+    con.execute(sql_loader.get_outlets_schema_sql())
+
+    # 2. Parse + derive
+    modl_db = pd.read_csv(csv_path)
+    df_groups, df_stations, df_reaches = _derive_tables(modl_db)
+
+    # 3. Insert in FK order.  Constraint violations raise here, pointing
+    #    at the bad row — duplicate station, missing repo, etc.
+    con.execute("INSERT INTO outlets.outlet_groups SELECT * FROM df_groups")
+    con.execute("INSERT INTO outlets.outlet_stations SELECT * FROM df_stations")
+    con.execute("INSERT INTO outlets.outlet_reaches SELECT * FROM df_reaches")
+    #%%
+
 def get_model_db(con, model_name: str):
     """Return the subset of stations data for a specific model repository.
 
@@ -423,27 +461,4 @@ def outlet_stations(con, model_name: str):
     """, (model_name,)).df()
     
     return [group['station_id'].to_list() for _, group in df.groupby(by=['opnids', 'repo_name'])]
-
-def build_outlets(con, model_name: str = None):
-    """Populate outlet tables from MODL_DB — bulk insert, no loops."""
-    
-    modl_db = pd.read_csv(Path(__file__).parent/'data'/'modl_db.csv')
-    
-    if model_name is not None:
-        modl_db = modl_db.query('repo_name == @model_name')
-
-
-    con.execute("""
-    INSERT INTO outlets.stations (
-        station_id, source, repo_name, true_opnid, opnids, 
-        outlet_id, wplmn_flag, modeled, comments
-    ) 
-    SELECT 
-        station_id, source, repo_name, true_opnid, opnids, 
-        outlet_id, wplmn_flag, modeled, comments 
-    FROM modl_db
-
-""")
-    
-    con.execute(sql_loader.get_outlets_schema_sql())
 
