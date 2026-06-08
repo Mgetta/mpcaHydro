@@ -70,7 +70,7 @@ hourly_averaged AS (
         'MEAN' AS statistic,
         60 AS interval_minutes,
         station_origin,
-        (date + time) AS datetime
+        COALESCE(date + time, date::TIMESTAMP) AS datetime
     FROM quality_filtered
     
     GROUP BY 

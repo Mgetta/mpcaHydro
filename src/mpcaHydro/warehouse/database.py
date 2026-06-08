@@ -160,7 +160,7 @@ from mpcaHydro import outlets
 from mpcaHydro.warehouse import sql_loader
 
 
-def create_session(data_dir: str | Path = 'data') -> duckdb.DuckDBPyConnection:
+def create_session(data_dir: str | Path = 'data', outlets_csv: Path | None = None) -> duckdb.DuckDBPyConnection:
     
     data_dir = Path(data_dir)
 
@@ -171,7 +171,7 @@ def create_session(data_dir: str | Path = 'data') -> duckdb.DuckDBPyConnection:
     
     # Create outlets tables and views first
     con.execute(sql_loader.get_outlets_schema_sql())
-    outlets.build_outlets(con)
+    outlets.build_outlets(con, csv_path=outlets_csv)
 
     # Create mapping tables (e.g. WISKI parametertype_id → constituent)
     create_mapping_tables(con)

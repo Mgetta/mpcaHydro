@@ -61,6 +61,7 @@ import duckdb
 from mpcaHydro.warehouse import sql_loader
 from mpcaHydro.warehouse.sql_loader import get_outlets_schema_sql
 
+_DEFAULT_CSV_PATH = Path(__file__).parent / 'data' / 'modl_db.csv'
 
 
 def _load_stations():
@@ -77,14 +78,14 @@ def _load_stations():
     return stations
 
 
-def _write_modl_db(output_path = None, model_name = None):
+def _write_modl_db(filepath = None, model_name = None):
     """Write outlet station and reach data to CSV files for inspection."""
-    if output_path is None:
-        output_path = Path(__file__).parent/'data'
+    if filepath is None:
+        filepath = _DEFAULT_CSV_PATH
     stations = _load_stations()
     if model_name is not None:
         stations = stations[stations['repo_name'] == model_name]
-    stations.to_csv(Path(output_path)/'modl_db.csv', index=False)
+    stations.to_csv(filepath, index=False)
 
 def _parse_opnids(s: str) -> tuple[int, ...]:
     """Parse 'opnids' cell into a sorted tuple of ints. Sorting makes
@@ -149,7 +150,8 @@ def build_outlets(con, csv_path: Path | None = None):
     Called once per session by warehouse.database.create_session.
     Raises on any constraint violation in the source data.
     """
-    csv_path = Path(csv_path) if csv_path else (Path(__file__).parent / 'data' / 'modl_db.csv')
+    if csv_path is None:
+        csv_path = _DEFAULT_CSV_PATH
 
     # 1. Ensure schema exists (PK/UQ/FK constraints declared in SQL)
     con.execute(sql_loader.get_outlets_schema_sql())
