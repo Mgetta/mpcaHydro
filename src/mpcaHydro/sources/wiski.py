@@ -201,7 +201,7 @@ def info(station_ids: list, constituent=None):
                             stationparameter_no = stationparameter_nos,
                             ts_name = ['15.Rated','09.Archive','08.Provisional.Edited'])
 
-    df = normalize_columns(df)
+    #df = normalize_columns(df)
 
     # rows = []
     # for station_id in df['station_id'].unique():            
