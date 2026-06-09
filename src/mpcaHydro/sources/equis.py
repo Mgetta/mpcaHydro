@@ -142,15 +142,13 @@ def connect(
         An open Oracle connection.
     """
     # 1. Try explicit args
+    if user and password:
+        pass  # already have credentials, do nothing
     # 2. Try environment variables
+    host_key = host.upper().replace('-', '_')
     user = user or os.environ.get('ORACLE_USER')
-
-    if password is None:
-        host_key = host.upper().replace('-', '_')
-        password = (
-            os.environ.get(f'ORACLE_PASSWORD_{host_key}')
-            or os.environ.get('ORACLE_PASSWORD')
-        )
+    password = os.environ.get(f'ORACLE_PASSWORD_{host_key}')
+    
 
     # 3. Fall back to interactive prompt
     if not user:
@@ -269,7 +267,7 @@ def to_dataframe(odb_cursor):
 
 #%% Query for station locations with HSPF related constituents
 
-def info(station_ids, connection: Optional[oracledb.Connection] = None):
+def info(station_ids, oracle_user: str = None, oracle_password: str = None, oracle_host: str = 'DELTAT'):
     """Retrieve a de-duplicated summary of available constituents per station.
 
     Internally calls :func:`download` and :func:`normalize`, then drops
@@ -280,8 +278,12 @@ def info(station_ids, connection: Optional[oracledb.Connection] = None):
     ----------
     station_ids : list of str
         EQuIS ``SYS_LOC_CODE`` values.
-    connection : oracledb.Connection, optional
-        Oracle connection.  Falls back to the global :data:`CONNECTION`.
+    oracle_user : str, optional
+        Oracle username.  Falls back to the global :data:`CONNECTION`.
+    oracle_password : str, optional
+        Oracle password.  Falls back to the global :data:`CONNECTION`.
+    oracle_host : str, optional
+        Oracle host.  Falls back to the global :data:`CONNECTION`.
 
     Returns
     -------
@@ -294,15 +296,13 @@ def info(station_ids, connection: Optional[oracledb.Connection] = None):
         If no connection is available.
     """
     
-    conn = connect()
-    df = download(station_ids, connection=conn).drop_duplicates(subset=['SYS_LOC_CODE','CAS_RN'])
-    close_connection(conn)
+    df = download(station_ids, oracle_user=oracle_user, oracle_password=oracle_password, oracle_host=oracle_host).drop_duplicates(subset=['SYS_LOC_CODE','CAS_RN'])
     return df
 
     
 
 
-def download(station_ids, connection: Optional[oracledb.Connection] = None):
+def download(station_ids, oracle_user: str = None, oracle_password: str = None, oracle_host: str = 'DELTAT'):
     """Download raw EQuIS result data for the given station IDs.
 
     Executes a SQL query against ``mpca_dal.mv_eq_result`` (the EQuIS
@@ -374,7 +374,7 @@ SELECT
         AND mpca_dal.mv_eq_result.facility_id IN ( 1, 33836701 )
         AND mpca_dal.mv_eq_result.sys_loc_code IN ({placeholders})
     """
-    conn = connect()
+    conn = connect(oracle_user, oracle_password, oracle_host)
     with conn.cursor() as cursor:
         cursor.execute(query,binds)
         df = to_dataframe(cursor)

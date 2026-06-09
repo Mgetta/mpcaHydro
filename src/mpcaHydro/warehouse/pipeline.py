@@ -26,10 +26,13 @@ def download_wiski_data(
 def download_equis_data(
     station_ids: List[str],
     data_dir: Path,
-    replace: bool = False
+    replace: bool = False,
+    oracle_user: str = None,
+    oracle_password: str = None,
+    oracle_host: str = 'DELTAT'
 ) -> None:
     """Download EQUIS data for the given stations and save to staging, deduplicating against existing data."""
-    df_equis = equis.download(station_ids)
+    df_equis = equis.download(station_ids, oracle_user=oracle_user, oracle_password=oracle_password, oracle_host=oracle_host)
     if df_equis.empty:
         print("No data downloaded")
     else:

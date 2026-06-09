@@ -144,13 +144,16 @@ class DataManagerWrapper:
     def download_equis_data(
         self,
         station_ids: List[str],
-        replace: bool = False
+        replace: bool = False,
+        oracle_username: str = None,
+        oracle_password: str = None,
+        oracle_host: str = 'DELTAT'
     ) -> None:
         """Download EQuIS data and load into the warehouse.
 
         See :func:`download_equis_data` for details.
         """
-        pipeline.download_equis_data(station_ids, self.data_dir, replace)
+        pipeline.download_equis_data(station_ids, self.data_dir, replace, oracle_username, oracle_password, oracle_host)
         self._refresh_views()
         
     def get_outlets(self, model_name: str) -> pd.DataFrame:
