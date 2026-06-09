@@ -10,13 +10,14 @@ CREATE OR REPLACE VIEW reports.wiski_qc_count AS (
         w."Quality Code",
         COUNT(w."Quality Code") AS count,
         wqc."Text",
-        wqc.Description
+        wqc.Description,
+        wqc.Active
     FROM staging.wiski w 
     LEFT JOIN mappings.wiski_quality_codes wqc
         ON w."Quality Code" = wqc.quality_code
     --WHERE wqc.Active = 1
     GROUP BY
-        w."Quality Code", wqc."Text", wqc.Description, w.parametertype_name, w.station_no
+        w."Quality Code", wqc."Text", wqc.Description, w.parametertype_name, w.station_no, wqc.Active
 );
 
 -- View: constituent_summary

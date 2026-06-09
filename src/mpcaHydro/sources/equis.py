@@ -294,11 +294,9 @@ def info(station_ids, connection: Optional[oracledb.Connection] = None):
         If no connection is available.
     """
     
-    conn = connection if connection is not None else CONNECTION
-    if conn is None:
-        raise ValueError("No connection provided and global CONNECTION is not set. Call connect() first or pass a connection.")
-    
+    conn = connect()
     df = download(station_ids, connection=conn).drop_duplicates(subset=['SYS_LOC_CODE','CAS_RN'])
+    close_connection(conn)
     return df
 
     
