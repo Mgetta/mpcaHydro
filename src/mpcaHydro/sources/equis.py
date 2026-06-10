@@ -145,15 +145,15 @@ def connect(
     if user and password:
         pass  # already have credentials, do nothing
     # 2. Try environment variables
-    host_key = host.upper().replace('-', '_')
-    user = user or os.environ.get('ORACLE_USER')
-    password = os.environ.get(f'ORACLE_PASSWORD_{host_key}')
-    
+    else:
+        host_key = host.upper().replace('-', '_')
+        user = user or os.environ.get('ORACLE_USER')
+        password = os.environ.get(f'ORACLE_PASSWORD_{host_key}')
+        
 
-    # 3. Fall back to interactive prompt
-    if not user:
+    # 3. Fall back to interactive prompt if not enviornment credentials
+    if not user or not password:
         user = input("Oracle username: ")
-    if not password:
         password = getpass(f"Oracle password for {user}@{host}: ")
 
     if sid is None:
