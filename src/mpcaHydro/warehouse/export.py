@@ -24,7 +24,8 @@ def export_station_to_csv(
         Destination CSV file path.
     """
     df = queries.get_station_data(con, station_id, station_origin)
-    df.to_csv(output_path, index=False)
+    output_file = Path(output_path) / f"{station_id}_{station_origin}.csv"
+    df.to_csv(output_file, index=False)
 
 
 def export_raw_to_csv(
@@ -47,4 +48,5 @@ def export_raw_to_csv(
         Destination CSV file path.
     """
     df = queries.get_raw_data(con, station_id, station_origin)
-    df.to_csv(output_path, index=False)
+    output_file = Path(output_path) / f"{station_id}_{station_origin}_raw.csv"
+    df.to_csv(output_file, index=False)

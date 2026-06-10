@@ -192,6 +192,27 @@ class DataManagerWrapper:
         See :func:`get_station_ids` for details.
         """
         return queries.get_station_ids(self.con, station_origin)
+
+    def get_all_stations(self,station_origin,model_name):
+        """Get all station ID within the spatial bounds of a model."""
+        if station_origin == 'wiski':
+            stations = queries.get_all_wiski_stations(self.con, model_name)
+        elif station_origin == 'equis':
+            stations = queries.get_all_equis_stations(self.con, model_name)
+        else:
+            raise ValueError("station_origin must be 'wiski' or 'equis'")
+        return stations
+    
+    def get_mapped_stations(self, station_origin: str, model_name : str) -> List[str]:
+        """Get station IDs that are mapped to reaches for a specific model and station origin.
+        """
+        if station_origin == 'wiski':
+            stations = outlets.mapped_wiski_stations(self.con,model_name)
+        elif station_origin == 'equis':
+            stations = outlets.mapped_equis_stations(self.con,model_name)
+        else:
+            raise ValueError("station_origin must be 'wiski' or 'equis'")
+        return stations
     
     def get_observation_data(
         self,
@@ -242,24 +263,28 @@ class DataManagerWrapper:
         self,
         station_id: str,
         station_origin: str,
-        output_path: Union[str, Path]
+        output_path: Union[str, Path] = None
     ) -> None:
         """Export analytics data for a station to CSV.
 
         See :func:`export_station_to_csv` for details.
         """
+        if output_path is None:
+            output_path = dm.data_dir
         export.export_station_to_csv(self.con, station_id, station_origin, output_path)
     
     def export_raw_to_csv(
         self,
         station_id: str,
         station_origin: str,
-        output_path: Union[str, Path]
+        output_path: Union[str, Path] = None
     ) -> None:
         """Export raw staging data for a station to CSV.
 
         See :func:`export_raw_to_csv` for details.
         """
+        if output_path is None:
+            output_path = dm.data_dir
         export.export_raw_to_csv(self.con, station_id, station_origin, output_path)
     
     def get_equis_template(self) -> pd.DataFrame:
