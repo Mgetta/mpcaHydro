@@ -117,21 +117,18 @@ def _derive_tables(modl_db: pd.DataFrame):
     outlet_keys['outlet_id'] = outlet_keys.index
     df = df.merge(outlet_keys, on=['reach_tuple', 'repo_name'])
 
-    # 1. outlet_groups: one row per outlet
     df_groups = (
         outlet_keys[['outlet_id', 'repo_name']]
         .rename(columns={'repo_name': 'repository_name'})
         .assign(outlet_name=None, notes=None)
     )
 
-    # 2. outlet_stations: one row per (outlet, station)
     df_stations = (
         df[['outlet_id', 'station_id', 'source', 'repo_name',
             'true_opnid', 'wplmn_flag', 'comments']]
         .rename(columns={'source': 'station_origin', 'repo_name': 'repository_name'})
     )
 
-    # 3. outlet_reaches: one row per (outlet, reach), exploded from the tuple
     df_reaches = (
         outlet_keys
         .assign(reach_id=outlet_keys['reach_tuple'])
@@ -144,24 +141,21 @@ def _derive_tables(modl_db: pd.DataFrame):
     return df_groups, df_stations, df_reaches
 
 
-def build_outlets(con, csv_path: Path | None = None):
+def build_outlets(con : duckdb.DuckDBPyConnection, csv_path: Path | None = None):
     """Build the outlets schema from the source CSV.
 
     Called once per session by warehouse.database.create_session.
-    Raises on any constraint violation in the source data.
     """
     if csv_path is None:
         csv_path = _DEFAULT_CSV_PATH
 
-    # 1. Ensure schema exists (PK/UQ/FK constraints declared in SQL)
     con.execute(sql_loader.get_outlets_schema_sql())
 
-    # 2. Parse + derive
     modl_db = pd.read_csv(csv_path)
     df_groups, df_stations, df_reaches = _derive_tables(modl_db)
 
-    # 3. Insert in FK order.  Constraint violations raise here, pointing
-    #    at the bad row — duplicate station, missing repo, etc.
+    #TODO: Add modl_db table to schema definition and load it as well, for easier debugging and maintenance.
+    con.execute("CREATE OR REPLACE TABLE outlets.modl_db AS SELECT * FROM modl_db")
     con.execute("INSERT INTO outlets.outlet_groups SELECT * FROM df_groups")
     con.execute("INSERT INTO outlets.outlet_stations SELECT * FROM df_stations")
     con.execute("INSERT INTO outlets.outlet_reaches SELECT * FROM df_reaches")
@@ -180,10 +174,10 @@ def get_model_db(con, model_name: str):
     Returns
     -------
     pandas.DataFrame
-        Rows from outlets.stations matching *model_name*.
+        Rows from outlets.modl_db matching *model_name*.
     """
     return con.execute(
-        "SELECT * FROM outlets.stations WHERE repo_name = ?", 
+        "SELECT * FROM outlets.modl_db WHERE repo_name = ?", 
         (model_name,)
     ).df()
 
@@ -199,7 +193,7 @@ def valid_models(con):
     -------
     list of str
     """
-    df = con.execute("SELECT DISTINCT repo_name FROM outlets.stations WHERE repo_name IS NOT NULL").df()
+    df = con.execute("SELECT DISTINCT repo_name FROM outlets.modl_db WHERE repo_name IS NOT NULL").df()
     return df['repo_name'].tolist()
 
 def equis_stations(con, model_name: str):
@@ -217,7 +211,7 @@ def equis_stations(con, model_name: str):
     list of str
     """
     df = con.execute(
-        "SELECT station_id FROM outlets.stations WHERE source = 'equis' AND repo_name = ?", 
+        "SELECT station_id FROM outlets.modl_db WHERE source = 'equis' AND repo_name = ?", 
         (model_name,)
     ).df()
     return df['station_id'].tolist()
@@ -237,7 +231,7 @@ def wiski_stations(con, model_name: str):
     list of str
     """
     df = con.execute(
-        "SELECT station_id FROM outlets.stations WHERE source = 'wiski' AND repo_name = ?", 
+        "SELECT station_id FROM outlets.modl_db WHERE source = 'wiski' AND repo_name = ?", 
         (model_name,)
     ).df()
     return df['station_id'].tolist()
@@ -257,7 +251,7 @@ def wplmn_stations(con, model_name: str):
     list of str
     """
     df = con.execute(
-        "SELECT station_id FROM outlets.stations WHERE source = 'wiski' AND repo_name = ? AND wplmn_flag = 1", 
+        "SELECT DISTINCT station_id FROM outlets.modl_db WHERE source = 'wiski' AND repo_name = ? AND wplmn_flag = 1", 
         (model_name,)
     ).df()
     return df['station_id'].tolist()    

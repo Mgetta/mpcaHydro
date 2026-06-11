@@ -193,12 +193,19 @@ class DataManagerWrapper:
         """
         return queries.get_station_ids(self.con, station_origin)
 
+    def get_wplmn_stations(self, model_name: str) -> List[str]:
+        """Get WPLMN station IDs for a model.
+
+        See :func:`get_wplmn_stations` for details.
+        """
+        return outlets.wplmn_stations(self.con, model_name)
+
     def get_all_stations(self,station_origin,model_name):
         """Get all station ID within the spatial bounds of a model."""
         if station_origin == 'wiski':
-            stations = queries.get_all_wiski_stations(self.con, model_name)
+            stations = outlets.wiski_stations(self.con, model_name)
         elif station_origin == 'equis':
-            stations = queries.get_all_equis_stations(self.con, model_name)
+            stations = outlets.equis_stations(self.con, model_name)
         else:
             raise ValueError("station_origin must be 'wiski' or 'equis'")
         return stations

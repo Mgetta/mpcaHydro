@@ -1,5 +1,15 @@
 CREATE SCHEMA IF NOT EXISTS outlets;
 
+-- CREATE TABLE IF NOT EXISTS outlets.modl_db (
+--     station_id TEXT NOT NULL,
+--     station_origin TEXT NOT NULL,
+--     repository_name TEXT NOT NULL,
+--     opnids TEXT,  -- comma-separated list of ints as text
+--     true_opnid INTEGER,
+--     wplmn_flag INTEGER,
+--     comments TEXT
+-- );
+
 CREATE TABLE IF NOT EXISTS outlets.outlet_groups (
     outlet_id INTEGER PRIMARY KEY,
     repository_name TEXT NOT NULL,
