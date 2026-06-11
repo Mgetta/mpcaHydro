@@ -10,13 +10,14 @@ CREATE OR REPLACE VIEW reports.wiski_qc_count AS (
         w."Quality Code",
         COUNT(w."Quality Code") AS count,
         wqc."Text",
-        wqc.Description
+        wqc.Description,
+        wqc.Active
     FROM staging.wiski w 
     LEFT JOIN mappings.wiski_quality_codes wqc
         ON w."Quality Code" = wqc.quality_code
-    WHERE wqc.Active = 1
+    --WHERE wqc.Active = 1
     GROUP BY
-        w."Quality Code", wqc."Text", wqc.Description, w.parametertype_name, w.station_no
+        w."Quality Code", wqc."Text", wqc.Description, w.parametertype_name, w.station_no, wqc.Active
 );
 
 -- View: constituent_summary
@@ -30,8 +31,8 @@ SELECT
     AVG(value) AS average_value,
     MIN(value) AS min_value,
     MAX(value) AS max_value,
-    year(MIN(datetime)) AS start_date,
-    year(MAX(datetime)) AS end_date
+    year(MIN(date)) AS start_date,
+    year(MAX(date)) AS end_date
 FROM
     analytics.observations
 GROUP BY
@@ -47,8 +48,8 @@ SELECT
     avg("value") AS average_value,
     min("value") AS min_value,
     max("value") AS max_value,
-    "year"(min(datetime)) AS start_date,
-    "year"(max(datetime)) AS end_date
+    "year"(min(date)) AS start_date,
+    "year"(max(date)) AS end_date
 FROM
     analytics.outlet_observations
 GROUP BY

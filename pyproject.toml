@@ -12,7 +12,8 @@ dependencies = [
   "pathlib",
   "duckdb",
   "oracledb",
-  "baseflow"
+  "baseflow",
+  "dataretrieval"
 ]
 requires-python = ">=3.8"
 authors = [
@@ -38,8 +39,8 @@ docs = [
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "network: test requires network access to WISKI/KISTERS API",
     "credentials: test requires Oracle database credentials",
-    "integration: mark test as integration test",
 ]

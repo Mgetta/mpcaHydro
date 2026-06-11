@@ -1,0 +1,71 @@
+﻿quality_code,Text,Description,Active
+0,Unchecked,Unchecked data in progress or data that is not quality coded as part of the workup.  Default coding for shifts so the quality codes from Level and Ratings are used for discharges. ,1
+3,Instantaneous,Instantaneous groundwater measurements or sampled date for load stations.,1
+5,Excellent,Discharge measurements that are excellent.,1
+8,Reliable Interpolation,The value of the data point is an interpolation between adjacent points.  Code used for filling gaps less than 4 hours or with no change in data trend likely based on reference information.,1
+10,Good,Time series data that tracks well and requires no corrections or corrections of very small magnitude or  timeseries data that has been reviewed and accepted for precipitation and groundwater level. Also used for discharge measurements and rating points.  ,1
+15,Fair,Time series data that tracks fairly well and requires some corrections of relatively small magnitude. Also used for discharge measurements and rating points.  ,1
+20,Poor,Time series data that tracks poorly and requires significant or many corrections. Also used for discharge measurements and rating points. ,1
+27,Questionable,"Timeseries data or discharge measurements that are questionable due to operator error, equipment error, etc). Extra scrutiny should be used for these data. ",1
+28,Unknown data quality,"Unknown quality of time series data, ratings or discharge measurements.",1
+29,Modeled,"Time-series data, rating point or discharge from a reliable mathematical and\or computer model. ",1
+34,Estimated,"Time-series data estimated from reference traces, models or extrapolation of the rating curve using supporting data and up to two times the maximum measured discharge.",1
+35,Unreliable,Time-series data computed with a rating extrapolated without supporting data or beyond two times the maximum measured discharge without a model.,1
+36,Threshold Exceedance,"Time-series data may be beyond the measuring limits of the monitoring equipment, or outside the bounds of historical extremes.",1
+40,Default import code,WISKI default coding for gaugings. ,1
+45,Approved Ext Data,"External data that has been graded externally as ""Approved"".",1
+48,Unknown Ext Data,External data that has been graded internally as “Unknown”.,1
+49,Estimated Ext Data,External data that has been graded externally as “Estimated.”  Typically this is finalized ice data.,1
+50,Provisional Ext Data,External data that has been graded internally or externally as “Provisional”.,1
+80,Ice - Estimated,Ice affected time series data. Discharge computed with ice affected stage data is considered estimated.,1
+199,199-Logger Unknown,Initial code for data coming to the system from the logger.,1
+200,200,Initial code for data coming to the system from telemetry or default coding for WISKI timeseries. ,1
+228,Info Parameter,This parameter is collected for informational purposes only.  Data has been through a cursory check only.  This is stored in the database and available upon request.,1
+255,---,System assigned code for gaps in the data set.  Records with null values. ,1
+1,Continuous Data,~Discontinued~ Good TS data that requires no correction.,0
+2,Edited Data,~Discontinued~ TS data that has been edited.  Typically used when spikes are removed or when points are edited manual for datum corrections.,0
+3,Instantaneous Data,Final WQ data.,0
+4,Questionable data,~Discontinued~,0
+5,Excellent measurment,Used to indicated discharge measurements that are excellent as well as excellent sections of the rating.,0
+10,Good measurement,Used to indicated discharge measurements and sections of the rating that are good and time series data that tracks well and requires no corrections or corrections of very small magnitude.,0
+12,Modeled measurement,~Discontinued~ Rating point or discharge was obtained from a relizble mathematical and/or computer model. After 3/1/11 use QC148.,0
+15,Fair measurement,Used to indicated discharge measurements and sections of the rating that are fair and time series data that tracks fairly well and requires some corrections of relatively small magnitude.,0
+20,Poor measurement,Used to indicated discharge measurements and sections of the rating that are poor and time series data that tracks poorly and requires significant or many corrections.,0
+25,Unknown measurement,Measurement data not available.,0
+27,Questionable data,"Flow measurement is very poor and should be given extra scrutiny or time series data that is questionable due to operator error, equipment error, etc.",0
+30,Good Archived Daily Value,This code is used for archived daily value data that is considered “Good”.,0
+31,Fair Archived Daily Value,This code is used for archived daily value data that is considered “Fair”.,0
+32,Poor Archived Daily Value,This code is used for archived daily value data that is considered “Poor”.,0
+33,Unknown Archived Daily Value,This code is used for archived daily value data that has unknown quality based on lack of documentation.,0
+34,Estimated Archived Daily Value,This code is used for archived daily value data that has been estimated.,0
+35,Unreliable Archived Daily Value,This code is used for archived daily value data that is unreliable based on the quality of the supporting time series data and/or rating.,0
+45,Good External Data,This code is used for external data that has been graded internally as “Good”.,0
+46,Fair External Data,This code is used for external data that has been graded internally as “Fair”.,0
+47,Poor External Data,This code is used for external data that has been graded internally as “Poor”.,0
+48,Unknown External Data,This code is used for external data that has been graded internally as “Unknown”,0
+49,Estimated External Data,This code is used for external data that has been graded externally as “Estimated.”  Typically this is finalized ice data.,0
+50,Provisional External Data,This code is used for external data that has been graded internally as “Provisional”,0
+51,Telemetry data - DCP,This code is used for time-series data when imported into hydstra using an automated telemetry method that accesses a DCP through the GOES network.  The “questionable measurement” flag is set through the shef code that accompanies the DCP data.,0
+60,Above rating,~Discontinued~,0
+70,Estimated Data,Value of the data point is estimated.,0
+76,Reliable interpolation,Value of the data point is an interpolation between adjacent points. ,0
+80,Ice,"(DISCONTINUED) Used to indicate ice conditions when the data should not be exported. Use in conjunction with 80 to code 232.00 values, run USDAY to compute daily flow, then recode 232.00 80 values to 180 so unit value export cannot occur.",0
+82,Linear interpolation across a gap in records,~Discontinued~  Points that were added to fill a gap in the data record.  The points fall on a straight line between the end points of the gap. This code was changed to 8 in WISKI.,0
+103,Provisional Instantaneous Data,Provisional WQ data.,0
+130,Good Provisional Daily Value,This code is used for archived daily value data that is considered “Good” but Provisional because there is only one year of gaging measurements.,0
+131,Fair Provisional Daily Value,This code is used for archived daily value data that is considered “Fair” but Provisional because there is only one year of gaging measurements.,0
+132,Poor Provisional Daily Value,This code is used for archived daily value data that is considered “Poor” but Provisional because there is only one year of gaging measurements.,0
+133,Unknown Provisional Archived Daily Value,This code is used for archived daily value data that has unknown quality based on lack of documentation but Provisional because there is only one year of gaging measurements.,0
+134,Estimated Provisional Archived Daily Value,This code is used for archived daily value data that has been estimated but Provisional because there is only one year of gaging measurements.,0
+135,Unreliable Provisional Archived Daily Value,This code is used for archived daily value data that is unreliable based on the quality of the supporting time series data and/or rating but Provisional because there is only one year of gaging measurements.,0
+140,Data not yet checked,This code is used for time-series data when it is initially imported into hydstra using manual import methods.  ,0
+141,Telemetry data - not yet checked,This code is used for time-series data when it is imported into hydstra using an automated telemetry method.,0
+148,Modeled measurement,Rating point or discharge was obtained from a reliable mathematical and/or computer model.,0
+149,Extrapolated rating point,Rating point accurately extrapolated using supporting data and is less than two times the maxiumum measured discharge.,0
+150,Over-extrapolated rating point,Rating point extrapolated without supporting data or beyone two times the maximum measured discharge without a mathematical model.,0
+151,Data Missing,"This code is used to flag the end of a period of missing time-series data, before the next good data value.",0
+160,Above rating,~Discontinued~,0
+169,Datalogger Hardware Error Code 6999,"This code is used to indicate that a time-series point had a value of 6999 or -6999, a typical hardware error code, and the value was changed.",0
+170,Estimated Data,"Used to indicate estimated data when the data should not be exported.  Often used in conjunction with 70 to code 232.00 values, run USDAY to compute daily flow, then recode 232.00 70 values to 170 so unit value export can not occur.",0
+180,Ice,Used to indicate ice conditions.,0
+255,Data Missing,This code is used when data is exported and does not exist for a given time period.,0

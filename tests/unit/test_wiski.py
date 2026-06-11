@@ -3,7 +3,7 @@
 
 import pytest
 import pandas as pd
-from mpcaHydro.wiski import convert_units, download
+from mpcaHydro.sources.wiski import convert_units, download
 
 
 class TestConvertUnits:

@@ -10,7 +10,7 @@ from pathlib import Path
 #from hspf_tools.orm.models import Station
 # import geopandas as gpd
 
-EQUIS_PARAMETER_XREF = pd.read_csv(Path(__file__).parent/'data/EQUIS_PARAMETER_XREF.csv')
+EQUIS_PARAMETER_XREF = pd.read_csv(Path(__file__).parent.parent/'data/EQUIS_PARAMETER_XREF.csv')
 
 
 CONSTITUENT_MAP = {i[0]:i[1] for i in EQUIS_PARAMETER_XREF[['PARAMETER','constituent']].values}

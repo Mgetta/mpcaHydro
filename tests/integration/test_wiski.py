@@ -10,7 +10,7 @@ Run with: pytest tests/integration/test_wiski.py -v
 
 import pytest
 import pandas as pd
-from mpcaHydro.wiski import download, transform
+from mpcaHydro.sources.wiski import download, transform
 from pathlib import Path
 
 

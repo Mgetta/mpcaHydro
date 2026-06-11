@@ -11,7 +11,7 @@ Run all:            pytest tests/integration/test_equis.py -v
 import pytest
 import pandas as pd
 from datetime import datetime
-from mpcaHydro.equis import transform, normalize, download, info
+from mpcaHydro.sources.equis import transform, normalize, download, info
 
 
 # ── Skip setup for credential-gated tests ───────────────────────────
