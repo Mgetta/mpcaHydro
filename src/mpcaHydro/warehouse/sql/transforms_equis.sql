@@ -50,25 +50,74 @@ columns_normalized AS (
         CAST(datetime AS DATE) AS date,
         CAST(datetime AS TIME) AS time,
         DETECT_FLAG as detect_flag,
+        GTLT as gtlt,
         REPORTING_DETECTION_LIMIT as reporting_detection_limit,
+        METHOD_DETECTION_LIMIT as method_detection_limit,
+        CAST(QUANTITATION_LIMIT AS FLOAT) as quantitation_limit,
         SAMPLE_METHOD as sample_method,
+        UPPER(TRIM(SAMPLE_TYPE_CODE)) AS sample_type_code,
         grain,
         statistic,
         interval_minutes
     FROM unit_converted
 ),
+
+sample_type_filtered AS (
+    -- Step 5: keep only Field Meter/Observation and standard Sample records
+    SELECT
+        station_id,
+        constituent,
+        value,
+        unit,
+        station_origin,
+        date,
+        time,
+        detect_flag,
+        gtlt,
+        reporting_detection_limit,
+        method_detection_limit,
+        quantitation_limit,
+        sample_method,
+        sample_type_code,
+        grain,
+        statistic,
+        interval_minutes
+    FROM columns_normalized
+    WHERE sample_type_code IN ('FMO', 'SAMPLE')
+),
     
 
 
 nondetects_replaced AS (
-    -- Step 5: flag and replace_nondetects with 1/2 the detection limit
-    SELECT *,
+    -- Step 6: flag and replace_nondetects with 1/2 the detection limit
+    SELECT
+        station_id,
+        constituent,
         CASE
-            WHEN detect_flag = 'N' THEN CAST(reporting_detection_limit AS FLOAT) / 2.0
+            WHEN UPPER(TRIM(detect_flag)) = 'N' OR TRIM(gtlt) = '<' THEN
+                COALESCE(
+                    TRY_CAST(TRIM(reporting_detection_limit) AS FLOAT),
+                    TRY_CAST(TRIM(method_detection_limit) AS FLOAT),
+                    quantitation_limit,
+                    value
+                ) / 2.0
             ELSE value
-        END AS value
-    --- COALESCE(value, 0) AS value, -- Optionally replace NULLs with 0, or you could choose to leave them as NULL
-    FROM columns_normalized
+        END AS value,
+        unit,
+        station_origin,
+        date,
+        time,
+        detect_flag,
+        gtlt,
+        reporting_detection_limit,
+        method_detection_limit,
+        quantitation_limit,
+        sample_method,
+        sample_type_code,
+        grain,
+        statistic,
+        interval_minutes
+    FROM sample_type_filtered
 ),
 
 
@@ -77,7 +126,7 @@ sample_method_filtered AS (
         n.*
     FROM nondetects_replaced n
     LEFT JOIN mappings.equis_sample_methods esm 
-        ON n.sample_method = esm.sample_method
+        ON COALESCE(NULLIF(TRIM(n.sample_method), ''), 'Unknown') = esm.sample_method
     WHERE esm.include = 1
 ),
 
@@ -103,6 +152,10 @@ hourly_averaged AS (
         'MEAN' AS statistic,
         60 AS interval_minutes,
         station_origin,
+        detect_flag,
+        reporting_detection_limit,
+        sample_method,
+        sample_type_code,
         COALESCE(date + time, date::TIMESTAMP) AS datetime
     FROM sample_method_filtered
     
@@ -115,7 +168,11 @@ hourly_averaged AS (
         grain,
         statistic,
         interval_minutes,
-        station_origin
+        station_origin,
+        detect_flag,
+        reporting_detection_limit,
+        sample_method,
+        sample_type_code
 )
 
 
