@@ -542,9 +542,13 @@ def _fetch_and_clean_chunk(ts_id, start_date, end_date, as_json):
         return df
     
     except Exception as exc:
-        print(f"FAILED chunk {start_date} to {end_date} for ts_id {ts_id}. Error: {exc}")
-        return pd.DataFrame()  # Always return a DataFrame, even if empty, for consistency
-
+        # Log the critical failure details
+        print(f"\n[CRITICAL FAILURE] Chunk {start_date} to {end_date} for ts_id {ts_id} failed after all retries.")
+        print(f"Error details: {exc}")
+        
+        # Reraise the exception to safely stop the ThreadPoolExecutor
+        raise exc
+    
 def download_chunk(ts_id, start_year=1996, end_year=2030, interval=2, as_json=False):
     """
     Main Procedure: Coordinates generating dates, fetching data concurrently, 

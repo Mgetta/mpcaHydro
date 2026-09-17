@@ -7,16 +7,15 @@ Created on Mon Jul 10 16:18:03 2023
 from pathlib import Path
 import requests
 from requests.exceptions import ConnectionError, Timeout, HTTPError, RequestException
-import pandas as pd
 import time
 
 
-
-from pathlib import Path
-import requests
-from requests.exceptions import ConnectionError, Timeout, HTTPError, RequestException
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 import pandas as pd
-import time
+
+RETRY_ATTEMPS = 3
+CONNECTION_TIMEOUT = 5 #seconds
+DOWNLOAD_TIMEOUT = 600 #seconds
 
 CERT_PATH = str(Path(__file__).resolve().parent / 'data' / 'wiskiweb01.pca.state.mn.us.crt')
 
@@ -32,7 +31,6 @@ BASE_PARAMS = {
 _last_url = None  # For debugging purposes, to see the last URL that was requested
 
 
-
 def _format_params(args_dict):
     """Merge base params with request args, converting lists to comma-separated strings
     and dropping None values."""
@@ -46,17 +44,19 @@ def _format_params(args_dict):
 
 def construct_url(args_dict):
     """Return the full URL that would be sent, without making a request."""
-    from requests import Request
     prepared = _format_params(args_dict)
-    return Request('GET', BASE_URL, params=prepared).prepare().url
+    return requests.Request('GET', BASE_URL, params=prepared).prepare().url
 
-
-
+@retry(
+    stop=stop_after_attempt(RETRY_ATTEMPS),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(RequestException))
 def _get(params):
     """Issue a GET request and return the requests.Response object."""
     global _last_url
+    _last_url = None
     prepared = _format_params(params)
-    response = requests.get(BASE_URL, params=prepared)
+    response = requests.get(BASE_URL, params=prepared, timeout= (CONNECTION_TIMEOUT, DOWNLOAD_TIMEOUT))
     response.raise_for_status()
     _last_url = response.url  # Store the last URL for debugging
     return response
@@ -65,7 +65,7 @@ def _get(params):
 # ── Connection test ──────────────────────────────────────────────────
 def test_connection():
     try:
-        response = requests.head('http://wiskiweb01.pca.state.mn.us', timeout=5)
+        response = requests.head('http://wiskiweb01.pca.state.mn.us', timeout=CONNECTION_TIMEOUT)
         response.raise_for_status()
         return True, f"Website is UP (Status Code: {response.status_code})"
     except ConnectionError as e:
